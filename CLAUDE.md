@@ -24,6 +24,8 @@ Match the existing history:
 
 ## Next step
 
-Done: records.js parses and encodes records (type classes, lengths, prefix chains and the ordering rule, Bundle, posts, value checks, the error table, post IDs, Keyed tags). records_test.mjs covers it with hand-built frames.
+Done: records.js parses and encodes records (type classes, lengths, prefix chains and the ordering rule, Bundle, posts, value checks, the error table, post IDs, Keyed tags). records_test.mjs covers it with hand-built frames. crypto.js wraps crypto.wasm (copied from CRYPTO's docs/crypto.wasm at 2339005): keys, signing, the `verify` callback for the parser and revocations. crypto_test.mjs checks CRYPTO's known answers.
 
-Next: the WebAssembly glue for CRYPTO (signing and the `verify` callback), then HYDRA (Fragments, reassembly, Request-Root).
+The GUI will be a PWA served from 127.0.0.1:8080 by `python3 -m http.server`, so modules load over fetch; `loadCrypto()` without arguments fetches crypto.wasm next to crypto.js.
+
+Next: the WebAssembly glue for HYDRA (Fragments, reassembly, Request-Root).
