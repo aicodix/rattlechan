@@ -25,7 +25,6 @@ Match the existing history:
 ## Open questions from the spec discussion
 
 - Prefix ordering rule: check edge cases through nested Bundles.
-- Position: the post timestamp is the fix time; a separate fix time may come later as an extension.
 
 ## Next step
 

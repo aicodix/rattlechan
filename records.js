@@ -332,18 +332,19 @@ function checkValue(node) {
 		node.id = b;
 		break;
 	case T.POSITION:
-		if (n !== 8 && n !== 12 && n !== 14)
-			bad('Position must be 8, 12 or 14 bytes');
+		if (n !== 12 && n !== 16 && n !== 18)
+			bad('Position must be 12, 16 or 18 bytes');
 		node.lat = i32(b, 0);
 		node.lon = i32(b, 4);
 		if (node.lat < -900000000 || node.lat > 900000000)
 			bad('latitude out of range');
 		if (node.lon < -1800000000 || node.lon > 1800000000)
 			bad('longitude out of range');
-		if (n >= 12)
-			node.alt = i32(b, 8);
-		if (n === 14)
-			node.acc = u16(b, 12);
+		node.time = u32(b, 8);
+		if (n >= 16)
+			node.alt = i32(b, 12);
+		if (n === 18)
+			node.acc = u16(b, 16);
 		break;
 	case T.TEMPERATURE:
 		if (n !== 2)
@@ -794,9 +795,10 @@ export function revoke(reason) {
 // Optional records
 export const mention = (id) => record(T.MENTION, bytesOf(id, 32, 'post ID'));
 
-// lat, lon in 1e-7 degrees; alt in mm above mean sea level; acc in m, 0 = unknown
-export function position({ lat, lon, alt, acc }) {
-	const chunks = [sle32(lat, 'latitude'), sle32(lon, 'longitude')];
+// lat, lon in 1e-7 degrees; time of the fix in Unix seconds (UTC);
+// alt in mm above mean sea level; acc in m, 0 = unknown
+export function position({ lat, lon, time, alt, acc }) {
+	const chunks = [sle32(lat, 'latitude'), sle32(lon, 'longitude'), le32(time, 'fix time')];
 	if (Math.abs(lat) > 900000000 || Math.abs(lon) > 1800000000)
 		throw new RangeError('latitude or longitude out of range');
 	if (acc !== undefined && alt === undefined)
