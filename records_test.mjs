@@ -437,20 +437,39 @@ check('Request-Root is 19 or 35 bytes', R.requestRoot(1, fill(16, 0)).length + '
 	throws('encode Request-Root needing 0 blocks', () => R.requestRoot(0, fill(16, 0)));
 	parses('signed request', R.payload([R.signed(alice, fill(64, 0), R.requestPost(parentId))]));
 
-	// hash flag 0, height 3, K 10, index 513; payload 8, proof 3 × 16, root 16
-	const header = (0 << 31 | 2 << 26 | 9 << 16 | 513) >>> 0;
-	const block = R.concat([header & 255, header >> 8 & 255, header >> 16 & 255, header >>> 24], fill(8 + 48 + 16, 0xAB));
+	// hash flag 0, height 10, K 10, index 513; payload 8, proof 10 × 16, root 16
+	const head = (h) => [h & 255, h >> 8 & 255, h >> 16 & 255, h >>> 24];
+	const fragBlock = (height, K, index, plen, flag = 0) =>
+		R.concat(head((flag << 31 | (height - 1) << 26 | (K - 1) << 16 | index) >>> 0), fill(plen + (height + 1) * (flag ? 32 : 16), 0xAB));
+	const block = fragBlock(10, 10, 513, 8);
 	p = parses('Fragment', R.payload([R.fragment(block), R.textUTF8('shares the frame')]));
-	check('Fragment height', p[0].height, 3);
+	check('Fragment height', p[0].height, 10);
+	check('Fragment N', p[0].N, 1024);
 	check('Fragment K', p[0].K, 10);
 	check('Fragment index', p[0].index, 513);
 	check('Fragment hash length', p[0].hlen, 16);
+	check('Fragment root', hex(p[0].root), hex(fill(16, 0xAB)));
+	check('Fragment without verifyBlock is unverified', p[0].verified, null);
 	check('Fragment shares the frame', p[1].type, T.TEXT_UTF8);
 	parses('Fragment in Bundle', R.payload([R.bundle(R.fragment(block))]));
 	const reserved = block.slice();
 	reserved[3] |= 0x40;
 	malformed('Fragment reserved bit', R.payload([R.fragment(reserved)]));
-	malformed('Fragment too short for proof', R.payload([R.fragment(block.subarray(0, 4 + 48))]));
+	malformed('Fragment too short for proof', R.payload([R.fragment(block.subarray(0, 4 + 11 * 16))]));
+	malformed('Fragment with 3 bytes of payload', R.payload([R.fragment(fragBlock(10, 10, 513, 3))]));
+	parses('Fragment with 4 bytes of payload', R.payload([R.fragment(fragBlock(10, 10, 513, 4))]));
+	malformed('Fragment with K > N', R.payload([R.fragment(fragBlock(3, 9, 0, 8))]));
+	parses('Fragment with K = N', R.payload([R.fragment(fragBlock(3, 8, 7, 8))]));
+	malformed('Fragment index N', R.payload([R.fragment(fragBlock(3, 8, 8, 8))]));
+	parses('Fragment height 16, index 65535, 32-byte hashes', R.payload([R.fragment(fragBlock(16, 1024, 65535, 8, 1))]));
+	parses('Fragment of 8192 bytes', R.payload([R.fragment(fragBlock(1, 1, 0, 8192 - 4 - 32))]));
+	malformed('Fragment of 8193 bytes', R.payload([R.fragment(fragBlock(1, 1, 0, 8193 - 4 - 32))]));
+	malformed('Fragment in a reassembled payload', R.payload([R.fragment(block)]), { reassembled: true });
+	malformed('Fragment in a Bundle in a reassembled payload', R.payload([R.bundle(R.fragment(block))]), { reassembled: true });
+	parses('reassembled payload without Fragments', R.payload([R.textUTF8('fine')]), { reassembled: true });
+	malformed('Fragment failing verifyBlock', R.payload([R.textUTF8('a'), R.fragment(block)]), { verifyBlock: () => false });
+	p = parses('Fragment passing verifyBlock', R.payload([R.fragment(block)]), { verifyBlock: (b) => b.length === block.length });
+	check('Fragment passing verifyBlock is verified', p[0].verified, true);
 	malformed('prefix before Fragment', R.payload([R.fromCall('A'), R.fragment(block)]));
 }
 

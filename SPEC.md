@@ -192,9 +192,10 @@ header (u32 LE): bit 31 hash flag (16/32 bytes), bit 30 reserved,
 
 - **Used for** payloads too big for one frame, or split into short transmissions to respect airtime limits. Smaller posts go as plain records.
 - **Sharing frames.** A fragment is only as long as it needs to be (`block_length`); the rest of the frame can carry other records.
-- **The reassembled payload** is an ordinary record stream; its zero padding parses as the end.
-- **Limits:** K ≤ 1024, N ≤ 65536, N ≥ K, index < N. Senders should use N ≥ 16 × next power of two of K, so independent relays rarely send the same block.
-- **Checks before HYDRA:** a block with header bit 30 set, or shorter than its header, proof and root, is malformed.
+- **The reassembled payload** is an ordinary record stream of at most 2²³ bytes; its zero padding parses as the end. It never holds Fragments itself: a Fragment in it is malformed.
+- **Limits:** N = 2^height with height 1–16, so N ≤ 65536; K ≤ 1024, K ≤ N, index < N, and a block is at most 8192 bytes. Senders should use N ≥ 16 × next power of two of K, so independent relays rarely send the same block.
+- **Checks before HYDRA:** a block with header bit 30 set, breaking the limits, or shorter than its header, proof, root and 4 bytes of payload, is malformed.
+- **HYDRA's check:** a block that fails `verify_block` (a wrong proof, non-zero padding) is malformed too, and drops the frame.
 - **Integrity:** every block carries a Merkle proof, so no one can corrupt a message; forged blocks fail or form their own root.
 - **Receivers** need any K valid blocks. K blocks with proofs are the complete state.
 - **Relays** decode, call `regenerate_tree` and send blocks only if the rebuilt root matches; otherwise they keep and send nothing.
@@ -214,6 +215,7 @@ Malformed data drops the whole frame, since it usually means corruption; unknown
 | Unknown optional type (0x30–0xEF) | skip the record |
 | Unknown must-understand type (0xF0–0xFE) | drop the innermost enclosing record, usually the Post; directly in Signed, the whole Signed; at the top level, the frame |
 | Signed records larger than 2²³ − 14 bytes | drop the frame |
+| Fragment breaking the limits or failing `verify_block`, Fragment inside a reassembled payload | drop the frame |
 | Signature check fails | drop that Signed record |
 | Client without CRYPTO | parse Signed contents, show as unverified, keep out of the tree |
 | Post without parts | drop the post |

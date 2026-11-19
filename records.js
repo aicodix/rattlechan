@@ -46,6 +46,9 @@ export const T = Object.freeze({
 
 const NAMES = Object.fromEntries(Object.entries(T).map(([k, v]) => [v, k]));
 
+// HYDRA blocks are at most 8192 bytes
+export const FRAGMENT_MAX = 8192;
+
 // CRYPTO signs at most 2^23 bytes: CONTEXT and the records of a Signed record
 export const SIGNED_MAX = (1 << 23) - CONTEXT.length;
 
@@ -576,8 +579,12 @@ function parseRecord(buf, node, ctx) {
 	case T.FRAGMENT: {
 		if (ctx.scope === 'signed')
 			bad('Fragment inside Signed');
+		if (ctx.opts.reassembled)
+			bad('Fragment inside a reassembled payload');
 		if (n < 4)
 			bad('Fragment too short');
+		if (n > FRAGMENT_MAX)
+			bad('Fragment longer than HYDRA blocks can be');
 		const h = u32(node.body, 0);
 		if (h & 0x40000000)
 			bad('Fragment reserved header bit set');
@@ -585,9 +592,23 @@ function parseRecord(buf, node, ctx) {
 		node.height = (h >>> 26 & 15) + 1;
 		node.K = (h >>> 16 & 1023) + 1;
 		node.index = h & 0xFFFF;
-		if (n < 4 + (node.height + 1) * node.hlen)
-			bad('Fragment too short for its proof and root');
+		node.N = 2 ** node.height;
+		if (node.K > node.N)
+			bad('Fragment with K > N');
+		if (node.index >= node.N)
+			bad('Fragment index not below N');
+		// HYDRA's payload holds at least one 31-bit value
+		if (n < 4 + (node.height + 1) * node.hlen + 4)
+			bad('Fragment too short for its proof, root and payload');
+		node.root = node.body.subarray(n - node.hlen);
 		node.block = node.body;
+		if (ctx.opts.verifyBlock) {
+			if (!ctx.opts.verifyBlock(node.block))
+				bad('Fragment fails HYDRA verification');
+			node.verified = true;
+		} else {
+			node.verified = null;
+		}
 		return;
 	}
 	case T.REQUEST_POST:
@@ -676,10 +697,14 @@ function parseRecords(buf, pos, end, ctx) {
 // Options:
 //   verify(key, sig, message) -> boolean, CRYPTO's Ed25519 check; without
 //     it Signed records are parsed and marked verified = null
+//   verifyBlock(block) -> boolean, HYDRA's verify_block; a Fragment that
+//     fails it drops the frame, without it Fragments are verified = null
+//   reassembled: true for a payload decoded from Fragments, which must not
+//     hold Fragments itself
 //   maxDepth: limit on nesting of Signed, Keyed and Bundle (default 16)
 export function parse(payload, opts = {}) {
 	bytesOf(payload, undefined, 'payload');
-	const o = { verify: null, maxDepth: 16, ...opts };
+	const o = { verify: null, verifyBlock: null, reassembled: false, maxDepth: 16, ...opts };
 	return parseRecords(payload, 0, payload.length, {
 		scope: 'plain', signer: null, chain: [], depth: 0, direct: null, top: true, opts: o,
 	}).nodes;
