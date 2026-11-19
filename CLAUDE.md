@@ -12,6 +12,15 @@ A message board that travels as sound. The protocol is in SPEC.md (v0 draft, sti
 - Every module gets a test file `<name>_test.mjs`, run with `node <name>_test.mjs`, no test framework.
 - License: 0BSD.
 
+## Commit messages
+
+Match the existing history:
+
+- A short lowercase subject, no trailing period, under about 60 characters, saying what changed. Example: `moved block count computation out of encode function`.
+- No body unless the reason is not obvious from the diff.
+- No Co-Authored-By, Claude-Session or other trailers, and no links.
+- Claude commits as `Claude <noreply@anthropic.com>`. Never use the maintainer's name or email.
+
 ## Open questions from the spec discussion
 
 - Keyed bullet: say explicitly that BLAKE2s-128 sets output length 16 in the parameter block and is not a truncated BLAKE2s-256.
