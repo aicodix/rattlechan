@@ -25,25 +25,14 @@ Match the existing history:
 ## Open questions from the spec discussion
 
 - Prefix ordering rule: check edge cases through nested Bundles.
-- Must-understand record (0xF0–0xFE) directly inside Signed: does "the innermost enclosing record" mean the whole Signed?
-- Should relays relay Keyed posts they can't verify? Not specified.
 - Position: the post timestamp is the fix time; a separate fix time may come later as an extension.
-- SPEC.md sizes look off by one: Signed overhead is type + length + key + sig = 98 bytes, not 97, so `Signed(key, Revoke)` is 101, not 100 (records_test.mjs checks 98 and 101).
+- SPEC.md sizes look off by one: Signed overhead is type + length + key + sig = 98 bytes, not 97, so `Signed(key, Revoke)` is 101, not 100 (records_test.mjs checks 98 and 101). The maintainer says to leave SPEC.md as is; how the sizes are counted still needs explaining.
 
 ## Choices records.js makes where SPEC.md is silent
 
 Each needs confirming in SPEC.md or changing in code:
 
-- A prefix may precede only Topic, a bare Text, Position or sensor record, Bundle, another prefix, or an unknown optional or must-understand record. Anything else after a prefix (Request-*, Fragment, Revoke, Signed, Keyed) drops the frame.
-- Mention, Codec2, WebP, Avatar and MIME escape outside a post drop the frame.
-- A must-understand record directly in Signed drops the whole Signed. In a Bundle, it drops the Bundle. At the top level nothing encloses it, so only the record itself is ignored. The rest of the container is still parsed, so malformed data after it still drops the frame.
-- A 0x00 inside any record (Signed, Keyed, Bundle, post) drops the frame. Only the top level ends at 0x00.
-- A post whose only parts are unknown optional records counts as non-empty.
-- Keyed allows Topic, Reply, Bundle and prefixes, and nothing else besides unknown records. Keyed inside Keyed drops the frame.
 - Revoke outside Signed is still checked for well-formedness, then ignored (`effective: false`).
-- A Fragment's reserved header bit 30 set, or a block too short for its proof and root, drops the frame.
-- Text in parts and subjects is not checked for valid UTF-8, only in handles, as the error table says.
-- An all-zero call sign decodes to the empty string and is accepted. The encoder refuses empty call signs and leading spaces, since neither survives the round trip.
 
 ## Next step
 

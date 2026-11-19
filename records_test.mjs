@@ -90,6 +90,7 @@ throws('call with leading space', () => R.encodeCall(' DL1ABC'));
 throws('empty call', () => R.encodeCall(''));
 malformed('call sign value 40^9', bytes(T.FROM_CALL, 0x00, 0x00, 0x00, 0x28, 0x6B, 0xEE, R.textUTF8('x')));
 malformed('call sign with digit 1', bytes(T.FROM_CALL, 1, 0, 0, 0, 0, 0, R.textUTF8('x')));
+malformed('empty call sign', bytes(T.FROM_CALL, 0, 0, 0, 0, 0, 0, R.textUTF8('x')));
 check('40^9 constant', 40 ** 9, 0xEE6B28000000);
 check('call sign value 40^9 - 1', R.decodeCall(bytes(0xFF, 0xFF, 0xFF, 0x27, 0x6B, 0xEE)), 'ZZZZZZZZZ');
 
@@ -154,7 +155,13 @@ check('Signed(key, Revoke) is 101 bytes', R.signed(alice, fill(64, 0), R.revoke(
 	parses('prefix before an unknown optional record', R.payload([R.fromCall('A'), R.record(0x37, [1, 2])]));
 	malformed('unknown prefix type', R.payload([bytes(0x08, 0), t]));
 	malformed('name handle not a text record', R.payload([bytes(T.FROM_NAME), R.temperature(0), t]));
-	malformed('invalid UTF-8 in a handle', R.payload([R.fromName(R.record(T.TEXT_UTF8, [0xC3, 0x28])), t]));
+	const badUTF8 = R.record(T.TEXT_UTF8, [0xC3, 0x28]);
+	malformed('invalid UTF-8 in a handle', R.payload([R.fromName(badUTF8), t]));
+	malformed('invalid UTF-8 in a subject', R.payload([R.topic(1, badUTF8, R.textUTF8('x'))]));
+	malformed('invalid UTF-8 in a text part', R.payload([R.reply(1, parentId, badUTF8)]));
+	malformed('invalid UTF-8 in a bare text', R.payload([badUTF8]));
+	malformed('truncated UTF-8 sequence', R.payload([R.record(T.TEXT_UTF8, [0xE2, 0x82])]));
+	parses('invalid UTF-8 bytes are fine in other encodings', R.payload([R.textTable(19, [0xC3, 0x28])]));
 	parses('Text-Table name handle', R.payload([R.fromName(R.textTable(19, [0x41, 0xE9])), t]));
 	parses('unknown text type in a handle', R.payload([R.fromName(R.record(0x4A, [1, 2, 3])), t]));
 	malformed('Text-Table handle without index', R.payload([R.fromName(R.record(T.TEXT_TABLE)), t]));
@@ -194,10 +201,10 @@ check('Signed(key, Revoke) is 101 bytes', R.signed(alice, fill(64, 0), R.revoke(
 	check('the record after the Bundle survives', p[1].dropped, undefined);
 	p = parses('must-understand in Signed', R.payload([R.signed(alice, fill(64, 0), t, mu)]));
 	check('must-understand directly in Signed drops the Signed', p[0].dropped, 'must-understand');
-	p = parses('must-understand at top level', R.payload([mu, t]));
-	check('must-understand at top level is only ignored', p[1].dropped, undefined);
+	malformed('must-understand at top level drops the frame', R.payload([t, mu]));
 	malformed('malformed after must-understand still drops the frame', R.payload([R.bundle(mu, R.record(0x29))]));
-	parses('prefix before must-understand', R.payload([R.fromCall('A'), mu]));
+	p = parses('prefix before must-understand', R.payload([R.bundle(R.fromCall('A'), mu)]));
+	check('prefix before must-understand drops the Bundle', p[0].dropped, 'must-understand');
 }
 
 // ------------------------------------------------------------ posts
@@ -240,8 +247,12 @@ check('Signed(key, Revoke) is 101 bytes', R.signed(alice, fill(64, 0), R.revoke(
 	malformed('topic without timestamp', R.payload([R.record(T.TOPIC, [1, 0])]));
 	malformed('reply with short parent', R.payload([R.record(T.REPLY, [1, 0, 0, 0], fill(31, 0))]));
 	malformed('core record inside a post', R.payload([R.reply(ts, parentId, R.textUTF8('a'), R.bundle())]));
-	malformed('Mention outside a post', R.payload([R.mention(fill(32, 1))]));
-	malformed('WebP outside a post', R.payload([R.webp(fill(10, 1))]));
+	p = parses('bare media', R.payload([R.mention(fill(32, 1)), R.fromCall('A'), R.webp(fill(10, 1)),
+		R.toCall('B'), R.mime('text/plain', 'a.txt', fill(3, 0x41)), R.codec2(8, fill(7, 0))]));
+	check('bare media are kept as bare records', p.map((x) => x.bare).join(), 'true,true,true,true');
+	check('prefix before bare WebP', p[1].chain[0].handle, 'A');
+	malformed('bare Mention of 31 bytes', R.payload([R.record(T.MENTION, fill(31, 1))]));
+	malformed('bare MIME with bad name', R.payload([R.record(T.MIME, [0x61, 0x2F, 0x62, 0, 0x2E, 0])]));
 	malformed('Mention of 31 bytes', R.payload([R.reply(ts, parentId, R.record(T.MENTION, fill(31, 1)))]));
 }
 
@@ -328,17 +339,44 @@ check('Signed(key, Revoke) is 101 bytes', R.signed(alice, fill(64, 0), R.revoke(
 	check('Keyed tag fails with another secret', R.verifyKeyed(p[0], fill(32, 1)), false);
 	check('Keyed post ID is the unsigned one', hex(p[0].children[0].id), hex(R.postId(sensor)));
 	check('Keyed tag is BLAKE2s-128 over CONTEXT, 0x02 and the records', hex(p[0].tag), hex(blake2s(R.concat(R.CONTEXT, [2], sensor), 16, secret)));
-	parses('Keyed Topic and Bundle', R.payload([R.keyed(secret, R.bundle(R.toKey(bob), t, sensor))]));
+	p = parses('Keyed with two Replies', R.payload([R.keyed(secret, sensor, R.reply(2, parentId, R.voltage(3200)))]));
+	check('Keyed with two Replies', p[0].children.length, 2);
+	parses('unknown optional record in Keyed', R.payload([R.keyed(secret, sensor, R.record(0x37, [1]))]));
+	p = parses('must-understand in Keyed', R.payload([R.keyed(secret, sensor, R.record(0xF1, [1]))]));
+	check('must-understand in Keyed drops the Keyed', p[0].dropped, 'must-understand');
+	malformed('Topic in Keyed', R.payload([R.keyed(secret, t)]));
+	malformed('Bundle in Keyed', R.payload([R.keyed(secret, R.bundle(sensor))]));
+	malformed('prefix in Keyed', R.payload([R.keyed(secret, R.fromCall('A'), R.record(0x37, [1]))]));
+	malformed('Revoke in Keyed', R.payload([R.keyed(secret, R.revoke('retired'))]));
 	malformed('Keyed inside Signed', R.payload([R.signed(alice, fill(64, 0), k)]));
 	malformed('Signed inside Keyed', R.payload([R.keyed(secret, good)]));
 	malformed('Keyed inside Keyed', R.payload([R.keyed(secret, k)]));
 	malformed('bare record in Keyed', R.payload([R.keyed(secret, R.temperature(1))]));
+	malformed('bare Avatar in Keyed', R.payload([R.keyed(secret, R.avatar(fill(4, 1)))]));
 	malformed('request in Keyed', R.payload([R.keyed(secret, R.requestPost(parentId))]));
 	malformed('Fragment in Keyed', R.payload([R.keyed(secret, R.fragment(fill(40, 0)))]));
 	malformed('Fragment in Signed', R.payload([R.signed(alice, fill(64, 0), R.fragment(fill(40, 0)))]));
 	malformed('Signed too short', R.payload([R.record(T.SIGNED, fill(95, 0))]));
 	malformed('Keyed too short', R.payload([R.record(T.KEYED, fill(15, 0))]));
 	throws('Keyed secret must be 32 bytes', () => R.keyed(fill(16, 0), sensor));
+}
+
+// ------------------------------------------------------------ Avatar
+
+{
+	const pic = R.avatar(fill(20, 0x52));
+	let p = parses('Avatar directly in Signed', R.payload([R.signed(alice, fill(64, 0), pic)]));
+	check('Avatar directly in Signed belongs to the signer', hex(p[0].children[0].signer), hex(alice));
+	p = parses('Avatar in a Bundle in Signed', R.payload([R.signed(alice, fill(64, 0), R.bundle(R.textUTF8('hi'), pic))]));
+	check('Avatar in a Bundle in Signed belongs to the signer', hex(p[0].children[0].children[1].signer), hex(alice));
+	p = parses('Avatar in nested Signed', R.payload([R.signed(group, fill(64, 0), R.signed(alice, fill(64, 0), pic))]));
+	check('Avatar in nested Signed belongs to the innermost signer', hex(p[0].children[0].children[0].signer), hex(alice));
+	p = parses('Avatar in a signed post', R.payload([R.signed(alice, fill(64, 0), R.reply(1, parentId, pic))]));
+	check('Avatar as a post part', p[0].children[0].parts[0].type, T.AVATAR);
+	check('signed post with an Avatar is kept', p[0].children[0].dropped, undefined);
+	p = parses('unsigned Avatar', R.payload([pic]));
+	check('unsigned Avatar has no signer', p[0].signer, null);
+	check('unsigned Avatar is only logged', p[0].bare, true);
 }
 
 // ------------------------------------------------------------ Revoke

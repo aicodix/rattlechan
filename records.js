@@ -64,7 +64,6 @@ export const isOptional = (t) => t >= 0x30 && t <= 0xEF;
 export const isMustUnderstand = (t) => t >= 0xF0 && t <= 0xFE;
 export const isText = (t) => t >= 0x40 && t <= 0x4F;
 export const isSensor = (t) => t >= T.TEMPERATURE && t <= T.VOLTAGE;
-const isBare = (t) => isText(t) || t === T.POSITION || isSensor(t);
 const isKnown = (t) => t in NAMES || isText(t);
 
 // Malformed data drops the whole frame
@@ -150,6 +149,8 @@ export function decodeCall(bytes, offset) {
 	let v = 0;
 	for (let i = 5; i >= 0; --i)
 		v = v * 256 + bytes[i];
+	if (v === 0)
+		throw new MalformedError('empty call sign', offset);
 	if (v >= MAX_CALL)
 		throw new MalformedError('call sign value out of range', offset);
 	let s = '';
@@ -238,7 +239,16 @@ function readRecord(buf, pos, end) {
 	};
 }
 
+const strictUTF8 = new TextDecoder('utf-8', { fatal: true });
+
 function checkTextRecord(node) {
+	if (node.type === T.TEXT_UTF8) {
+		try {
+			strictUTF8.decode(node.body);
+		} catch {
+			throw new MalformedError('invalid UTF-8', node.offset);
+		}
+	}
 	if (node.type === T.TEXT_TABLE) {
 		if (node.body.length < 1)
 			throw new MalformedError('Text-Table without index byte', node.offset);
@@ -272,13 +282,6 @@ function parsePrefix(buf, pos, end) {
 			throw new MalformedError('name handle is not a text record', pos);
 		const text = readRecord(buf, pos + 1, end);
 		checkTextRecord(text);
-		if (text.type === T.TEXT_UTF8) {
-			try {
-				new TextDecoder('utf-8', { fatal: true }).decode(text.body);
-			} catch {
-				throw new MalformedError('invalid UTF-8 in a handle', pos);
-			}
-		}
 		node.handle = text;
 		next = text.end;
 		break;
@@ -480,14 +483,16 @@ function parseHeadedContainer(buf, node, ctx, head, scope, signer) {
 function parseRecord(buf, node, ctx) {
 	const type = node.type, n = node.body.length;
 	const bad = (what) => { throw new MalformedError(what, node.offset); };
-	const notIn = (scope) => { if (ctx.scope === scope) bad(`${node.name} inside ${scope === 'keyed' ? 'Keyed' : 'Signed'}`); };
 
-	if (node.chain.length && !(type === T.TOPIC || isBare(type) || type === T.BUNDLE || !isKnown(type) || isMustUnderstand(type)))
+	// prefixes go in front of Topic, Bundle and bare (optional) records only
+	if (node.chain.length && !(type === T.TOPIC || type === T.BUNDLE || isOptional(type) || isMustUnderstand(type)))
 		bad(type === T.REPLY ? 'prefix applies to a Reply' : `prefix applies to ${node.name}`);
+	// Keyed holds Replies only, besides unknown records
+	if (ctx.scope === 'keyed' && type !== T.REPLY && isKnown(type))
+		bad(`${node.name} inside Keyed`);
 
 	switch (type) {
 	case T.SIGNED: {
-		notIn('keyed');
 		if (n < 96)
 			bad('Signed too short');
 		node.key = node.body.subarray(0, 32);
@@ -509,8 +514,8 @@ function parseRecord(buf, node, ctx) {
 		return;
 	}
 	case T.KEYED: {
-		if (ctx.scope !== 'plain')
-			bad(`Keyed inside ${ctx.scope === 'keyed' ? 'Keyed' : 'Signed'}`);
+		if (ctx.scope === 'signed')
+			bad('Keyed inside Signed');
 		if (n < 16)
 			bad('Keyed too short');
 		node.tag = node.body.subarray(0, 16);
@@ -536,8 +541,8 @@ function parseRecord(buf, node, ctx) {
 		parsePost(buf, node, ctx);
 		return;
 	case T.FRAGMENT: {
-		if (ctx.scope !== 'plain')
-			bad(`Fragment inside ${ctx.scope === 'keyed' ? 'Keyed' : 'Signed'}`);
+		if (ctx.scope === 'signed')
+			bad('Fragment inside Signed');
 		if (n < 4)
 			bad('Fragment too short');
 		const h = u32(node.body, 0);
@@ -553,13 +558,11 @@ function parseRecord(buf, node, ctx) {
 		return;
 	}
 	case T.REQUEST_POST:
-		notIn('keyed');
 		if (n !== 32)
 			bad('Request-Post must be 32 bytes');
 		node.id = node.body;
 		return;
 	case T.REQUEST_ROOT: {
-		notIn('keyed');
 		if (n < 2)
 			bad('Request-Root too short');
 		const h = u16(node.body, 0);
@@ -573,7 +576,6 @@ function parseRecord(buf, node, ctx) {
 		return;
 	}
 	case T.REVOKE:
-		notIn('keyed');
 		if (n !== 1 || node.body[0] > 1)
 			bad('Revoke must be one byte, 0 or 1');
 		node.reason = node.body[0] ? 'compromised' : 'retired';
@@ -591,14 +593,11 @@ function parseRecord(buf, node, ctx) {
 		node.unknown = true;
 		return;
 	}
-	if (isBare(type)) {
-		notIn('keyed');
-		checkValue(node);
-		node.bare = true;
-		return;
-	}
-	// Mention and media only exist as parts of a post
-	bad(`${node.name} outside a post`);
+	// a bare record: logged, only a signed Avatar has an effect
+	checkValue(node);
+	node.bare = true;
+	if (type === T.AVATAR)
+		node.signer = ctx.signer;
 }
 
 function parseRecords(buf, pos, end, ctx) {
@@ -616,6 +615,8 @@ function parseRecords(buf, pos, end, ctx) {
 		if (type === 0xFF)
 			throw new MalformedError('reserved type 0xFF', pos);
 		if (isPrefix(type)) {
+			if (ctx.scope === 'keyed')
+				throw new MalformedError('prefix inside Keyed', pos);
 			const p = parsePrefix(buf, pos, end);
 			const last = pending.length ? pending[pending.length - 1].type : chainMax;
 			if (type <= last)
@@ -629,9 +630,12 @@ function parseRecords(buf, pos, end, ctx) {
 		node.chain = pending.length ? ctx.chain.concat(pending) : ctx.chain;
 		pending = [];
 		parseRecord(buf, node, ctx);
-		// at the top level nothing encloses it, so only the record itself is ignored
-		if (node.unknown && isMustUnderstand(node.type) && !ctx.top)
+		if (node.unknown && isMustUnderstand(node.type)) {
+			// at the top level nothing encloses it, so the frame goes
+			if (ctx.top)
+				throw new MalformedError(`unknown must-understand type 0x${hex2(node.type)}`, node.offset);
 			mustDrop = true;
+		}
 		nodes.push(node);
 		pos = node.end;
 	}
