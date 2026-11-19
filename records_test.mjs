@@ -369,6 +369,10 @@ check('Request-Root is 19 or 35 bytes', R.requestRoot(1, fill(16, 0)).length + '
 	malformed('Fragment in Keyed', R.payload([R.keyed(secret, R.fragment(fill(40, 0)))]));
 	malformed('Fragment in Signed', R.payload([R.signed(alice, fill(64, 0), R.fragment(fill(40, 0)))]));
 	malformed('Signed too short', R.payload([R.record(T.SIGNED, fill(95, 0))]));
+	check('Signed limit', R.SIGNED_MAX, 8388594);
+	const big = (n) => R.payload([R.signed(alice, fill(64, 0), R.record(0x37, fill(n - 5, 0)))]);
+	check('records of the largest Signed', R.parse(big(R.SIGNED_MAX))[0].inner.length, R.SIGNED_MAX);
+	malformed('Signed one byte too large', big(R.SIGNED_MAX + 1));
 	malformed('Keyed too short', R.payload([R.record(T.KEYED, fill(15, 0))]));
 	throws('Keyed secret must be 32 bytes', () => R.keyed(fill(16, 0), sensor));
 }

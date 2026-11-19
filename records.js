@@ -46,6 +46,9 @@ export const T = Object.freeze({
 
 const NAMES = Object.fromEntries(Object.entries(T).map(([k, v]) => [v, k]));
 
+// CRYPTO signs at most 2^23 bytes: CONTEXT and the records of a Signed record
+export const SIGNED_MAX = (1 << 23) - CONTEXT.length;
+
 // Text-Table index byte, new entries are only ever appended
 export const TEXT_TABLE = Object.freeze([
 	'IBM866', 'ISO-8859-2', 'ISO-8859-3', 'ISO-8859-4',
@@ -521,6 +524,8 @@ function parseRecord(buf, node, ctx) {
 	case T.SIGNED: {
 		if (n < 96)
 			bad('Signed too short');
+		if (n - 96 > SIGNED_MAX)
+			bad('Signed too large for CRYPTO');
 		node.key = node.body.subarray(0, 32);
 		node.sig = node.body.subarray(32, 96);
 		node.inner = node.body.subarray(96);
