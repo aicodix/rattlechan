@@ -22,6 +22,8 @@ Early. The protocol is a v0 draft in [SPEC.md](SPEC.md) and will change while th
 * [SPEC.md](SPEC.md): the Rattlechan v0 protocol
 * [blake2s.js](blake2s.js): BLAKE2s (RFC 7693) with keyed mode, output lengths 1 to 32 bytes and streaming
 * [blake2s_test.mjs](blake2s_test.mjs): tests, run with `node blake2s_test.mjs`
+* [records.js](records.js): record parser and encoder: prefixes, posts, Signed, Keyed, Bundle, post IDs and the error table
+* [records_test.mjs](records_test.mjs): tests with hand-built frames, run with `node records_test.mjs`
 
 ## License
 
