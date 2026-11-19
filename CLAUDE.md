@@ -24,8 +24,6 @@ Match the existing history:
 
 ## Open questions from the spec discussion
 
-- Keyed bullet: say explicitly that BLAKE2s-128 sets output length 16 in the parameter block and is not a truncated BLAKE2s-256.
-- "NO ENCRYPTION. EVER." gives ham rules as the reason; Rattlechan also runs on CB, PMR and other channels. Say the protocol stays legal on the strictest channel it runs on.
 - Prefix ordering rule: check edge cases through nested Bundles.
 - Must-understand record (0xF0–0xFE) directly inside Signed: does "the innermost enclosing record" mean the whole Signed?
 - Should relays relay Keyed posts they can't verify? Not specified.
