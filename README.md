@@ -29,6 +29,9 @@ Early. The protocol is a v0 draft in [SPEC.md](SPEC.md) and will change while th
 * [crypto.wasm](crypto.wasm): the [CRYPTO](https://github.com/xdsopl/crypto) module, copied as it is from its `docs/crypto.wasm` at commit 2339005
 * [crypto.js](crypto.js): glue for crypto.wasm: keys, signing, the `verify` callback for the parser and the two revocations of a key
 * [crypto_test.mjs](crypto_test.mjs): tests with CRYPTO's known answers, run with `node crypto_test.mjs`
+* [hydra.wasm](hydra.wasm): the [HYDRA](https://github.com/xdsopl/hydra) module, copied as it is from its `docs/hydra.wasm` at commit 87fa55a
+* [hydra.js](hydra.js): glue for hydra.wasm: planning, encoding into Fragments, verifying, decoding, the relay check, and a reassembler that collects blocks and asks for missing ones with Request-Root
+* [hydra_test.mjs](hydra_test.mjs): tests with HYDRA's planning table and a lossy channel, run with `node hydra_test.mjs`
 
 ## License
 

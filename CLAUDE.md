@@ -24,8 +24,8 @@ Match the existing history:
 
 ## Next step
 
-Done: records.js parses and encodes records (type classes, lengths, prefix chains and the ordering rule, Bundle, posts, value checks, the error table, post IDs, Keyed tags). records_test.mjs covers it with hand-built frames. crypto.js wraps crypto.wasm (copied from CRYPTO's docs/crypto.wasm at 2339005): keys, signing, the `verify` callback for the parser and revocations. crypto_test.mjs checks CRYPTO's known answers.
+Done: records.js parses and encodes records (type classes, lengths, prefix chains and the ordering rule, Bundle, posts, value checks, the error table, post IDs, Keyed tags). records_test.mjs covers it with hand-built frames. crypto.js wraps crypto.wasm (copied from CRYPTO's docs/crypto.wasm at 2339005): keys, signing, the `verify` callback for the parser and revocations. crypto_test.mjs checks CRYPTO's known answers. hydra.js wraps hydra.wasm (copied from HYDRA's docs/hydra.wasm at 87fa55a): planning, encoding, `verifyBlock` for the parser, decoding, the relay check, and a Reassembler that collects blocks and makes Request-Root records. wasm.js loads both modules.
 
-The GUI will be a PWA served from 127.0.0.1:8080 by `python3 -m http.server`, so modules load over fetch; `loadCrypto()` without arguments fetches crypto.wasm next to crypto.js.
+The GUI will be a PWA served from 127.0.0.1:8080 by `python3 -m http.server`, so modules load over fetch; `loadCrypto()` and `loadHydra()` without arguments fetch their .wasm next to their .js.
 
-Next: the WebAssembly glue for HYDRA (Fragments, reassembly, Request-Root).
+Next: to be decided with the maintainer (ROBUSTO, SCSU, storage, the GUI).
