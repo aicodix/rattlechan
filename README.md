@@ -24,6 +24,8 @@ Early. The protocol is a v0 draft in [SPEC.md](SPEC.md) and will change while th
 * [blake2s_test.mjs](blake2s_test.mjs): tests, run with `node blake2s_test.mjs`
 * [records.js](records.js): record parser and encoder: prefixes, posts, Signed, Keyed, Bundle, post IDs and the error table
 * [records_test.mjs](records_test.mjs): tests with hand-built frames, run with `node records_test.mjs`
+* [wasm.js](wasm.js): loads the WebAssembly modules from a URL, a fetch Response, bytes or a compiled module
+* [wasm_test.mjs](wasm_test.mjs): tests with a hand-written module, run with `node wasm_test.mjs`
 * [crypto.wasm](crypto.wasm): the [CRYPTO](https://github.com/xdsopl/crypto) module, copied as it is from its `docs/crypto.wasm` at commit 2339005
 * [crypto.js](crypto.js): glue for crypto.wasm: keys, signing, the `verify` callback for the parser and the two revocations of a key
 * [crypto_test.mjs](crypto_test.mjs): tests with CRYPTO's known answers, run with `node crypto_test.mjs`

@@ -111,23 +111,11 @@ for (const [key, pub, sigs] of keys) {
 	check('small-order key is rejected', C.verify(new Uint8Array(32), sig, msg), false);
 }
 
-// ------------------------------------------- loading in other ways
+// ------------------------------------------- loading as a Module
 
 {
 	const fromModule = await loadCrypto(new WebAssembly.Module(wasmBytes));
-	const fromBuffer = await loadCrypto(wasmBytes.buffer.slice(wasmBytes.byteOffset, wasmBytes.byteOffset + wasmBytes.length));
-	const fromResponse = await loadCrypto(new Response(wasmBytes, { headers: { 'Content-Type': 'application/wasm' } }));
-	const wrongType = await loadCrypto(new Response(wasmBytes, { headers: { 'Content-Type': 'application/octet-stream' } }));
-	const k = unhex(keys[0][0]);
-	for (const [name, c] of Object.entries({ fromModule, fromBuffer, fromResponse, wrongType }))
-		check(`load ${name}`, hex(c.fingerprint(k)), keys[0][1]);
-	let failedLoad = false;
-	try {
-		await loadCrypto(new Response('not found', { status: 404 }));
-	} catch {
-		failedLoad = true;
-	}
-	check('a 404 does not load', failedLoad, true);
+	check('load from a Module', hex(fromModule.fingerprint(unhex(keys[0][0]))), keys[0][1]);
 }
 
 // ----------------------------------------------- with records.js

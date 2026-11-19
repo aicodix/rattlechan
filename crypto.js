@@ -3,31 +3,14 @@
 // SHA-512. Not compatible with RFC 8032 libraries.
 
 import { revoke, signed, signingMessage, concat } from './records.js';
+import { instantiate } from './wasm.js';
 
 export const MESSAGE_MAX = 1 << 23;
 
-// source: a URL or string (fetched), a fetch Response, bytes (ArrayBuffer or
-// typed array) or a compiled WebAssembly.Module. Without one, crypto.wasm
-// is fetched from next to this file, as a browser or PWA does.
+// source as for instantiate() in wasm.js. Without one, crypto.wasm is
+// fetched from next to this file, as a browser or PWA does.
 export async function loadCrypto(source = new URL('./crypto.wasm', import.meta.url)) {
-	if (typeof source === 'string' || source instanceof URL)
-		source = await fetch(source);
-	let instance;
-	if (source instanceof WebAssembly.Module) {
-		instance = await WebAssembly.instantiate(source);
-	} else if (typeof Response !== 'undefined' && source instanceof Response) {
-		if (!source.ok)
-			throw new Error(`loading crypto.wasm failed: ${source.status} ${source.statusText}`);
-		try {
-			// needs the server to send application/wasm
-			({ instance } = await WebAssembly.instantiateStreaming(source.clone()));
-		} catch {
-			({ instance } = await WebAssembly.instantiate(await source.arrayBuffer()));
-		}
-	} else {
-		({ instance } = await WebAssembly.instantiate(source));
-	}
-	return wrap(instance.exports);
+	return wrap(await instantiate(source));
 }
 
 function wrap(wasm) {
