@@ -98,7 +98,7 @@ Signed[ From-Call From-Name Bundle[ To-Call Bundle[ Post Post ]
 ```
 
 - **Ordering rule.** Along a chain, each prefix type must be strictly greater than every prefix enclosing it, ignoring Bundle. This enforces From before To, forbids the same kind twice and makes the bytes canonical.
-- **Bundle** (core record 0x22) applies the prefixes before it to all its children. Each child continues the chain from there.
+- **Bundle** (core record 0x22) applies the prefixes before it to all its children. Each child continues the chain from there. A Bundle with prefixes in force, its own or inherited, must have at least one child: an empty one is a prefix with no record after it.
 - **Prefixes may precede** Topic, a bare record, Bundle or another prefix, never a Reply, a request, a Revoke or a Fragment. Signed and Keyed start a fresh scope: prefixes go inside them, never in front.
 - **Call signs** are up to 9 characters in ROBUSTO's base-40 alphabet, read as one base-40 number with the first character as the most significant digit, and stored as a 48-bit little-endian integer in 6 bytes. Character values: 0 = space, 1 = unused, 2 = `-`, 3 = `/`, 4–13 = `0`–`9`, 14–39 = `A`–`Z`; lower-case letters get the same values as upper case, so call signs are case-insensitive by construction. There is no padding: the number has as many digits as the call sign has characters. A value of 0 (an empty call sign), 40⁹ or more, or a digit 1, is malformed. SSIDs like DL1ABC-7 fit. The GUI can prefill call signs from the preamble.
 - **Names** are a Text record in any of the three text types. Receivers compare them byte for byte and never decode to compare; they show the decoded text if the encoding is supported, otherwise a short hash.
@@ -208,7 +208,7 @@ Malformed data drops the whole frame, since it usually means corruption; unknown
 |---|---|
 | Length or fixed-size record runs past its container, long length form below 255 | drop the frame |
 | Unknown prefix or core type, or 0xFF | drop the frame |
-| Prefix order violated, duplicate field, prefix with no record after it, any prefix applying to a Reply (directly or through a Bundle) | drop the frame |
+| Prefix order violated, duplicate field, prefix with no record after it (or only an empty Bundle), any prefix applying to a Reply (directly or through a Bundle) | drop the frame |
 | Invalid UTF-8 in any Text-UTF-8 record, invalid base-40 value, empty call sign | drop the frame |
 | 0x00 inside a record | drop the frame |
 | Unknown optional type (0x30–0xEF) | skip the record |

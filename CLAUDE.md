@@ -22,10 +22,6 @@ Match the existing history:
 - No Co-Authored-By, Claude-Session or other trailers, and no links.
 - Claude commits as `Claude <noreply@anthropic.com>`. Never use the maintainer's name or email.
 
-## Open questions from the spec discussion
-
-- Prefix ordering rule: check edge cases through nested Bundles.
-
 ## Next step
 
 Done: records.js parses and encodes records (type classes, lengths, prefix chains and the ordering rule, Bundle, posts, value checks, the error table, post IDs, Keyed tags). records_test.mjs covers it with hand-built frames.

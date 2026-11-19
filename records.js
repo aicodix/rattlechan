@@ -557,6 +557,8 @@ function parseRecord(buf, node, ctx) {
 		const r = parseRecords(buf, node.end - n, node.end, {
 			...ctx, chain: node.chain, depth: ctx.depth + 1, direct: T.BUNDLE, top: false,
 		});
+		if (node.chain.length && !r.nodes.length)
+			bad('prefix applies to an empty Bundle');
 		node.children = r.nodes;
 		if (r.mustDrop)
 			node.dropped = 'must-understand';

@@ -145,6 +145,10 @@ check('Request-Root is 19 or 35 bytes', R.requestRoot(1, fill(16, 0)).length + '
 	malformed('prefix at end of payload', R.payload([R.fromCall('A')]));
 	malformed('prefix before padding', R.payload([R.fromCall('A')], 20));
 	malformed('prefix at end of Bundle', R.payload([R.bundle(t, R.toCall('B'))]));
+	malformed('prefix before an empty Bundle', R.payload([R.fromCall('A'), R.bundle()]));
+	malformed('inherited prefix in an empty nested Bundle', R.payload([R.fromCall('A'), R.bundle(t, R.bundle())]));
+	parses('empty Bundle without prefixes', R.payload([R.bundle(), t]));
+	parses('empty nested Bundle without prefixes', R.payload([R.bundle(R.bundle())]));
 	malformed('prefix before a Reply', R.payload([R.toCall('B'), r]));
 	malformed('prefix before a Reply through a Bundle', R.payload([R.toCall('B'), R.bundle(t, r)]));
 	malformed('prefix before Signed', R.payload([R.fromCall('A'), R.signed(alice, fill(64, 0), t)]));
