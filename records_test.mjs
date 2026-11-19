@@ -99,9 +99,10 @@ check('call sign value 40^9 - 1', R.decodeCall(bytes(0xFF, 0xFF, 0xFF, 0x27, 0x6
 check('From-Call + Temperature is 11 bytes', R.payload([R.fromCall('DL1ABC'), R.temperature(2150)]).length, 11);
 check('From-Call + Position is 17 bytes', R.payload([R.fromCall('DL1ABC'), R.position({ lat: 0, lon: 0 })]).length, 17);
 check('Keyed overhead is 18 bytes', R.keyed(secret).length, 18);
-// SPEC.md says 97 and 100 here: type, length, key and signature make 98
 check('Signed overhead is 98 bytes', R.signed(alice, fill(64, 0)).length, 98);
-check('Signed(key, Revoke) is 101 bytes', R.signed(alice, fill(64, 0), R.revoke('retired')).length, 101);
+check('Signed(key, Revoke) is 99 bytes', R.signed(alice, fill(64, 0), R.revoke('retired')).length, 99);
+check('Request-Post is 33 bytes', R.requestPost(parentId).length, 33);
+check('Request-Root is 19 or 35 bytes', R.requestRoot(1, fill(16, 0)).length + ',' + R.requestRoot(1, fill(32, 0)).length, '19,35');
 
 // -------------------------------------------- the spec's prefix example
 
@@ -174,7 +175,7 @@ check('Signed(key, Revoke) is 101 bytes', R.signed(alice, fill(64, 0), R.revoke(
 {
 	const t = R.topic(1, 's', R.textUTF8('x'));
 	malformed('reserved type 0xFF', bytes(0xFF, 0));
-	malformed('unknown core type', R.payload([R.record(0x29, [1]), t]));
+	malformed('unknown core type', R.payload([R.record(0x2A, [1]), t]));
 	const p = parses('unknown optional record', R.payload([R.record(0x37, [1, 2]), t]));
 	check('unknown optional record is kept as unknown', p[0].unknown, true);
 	check('record after unknown optional', p[1].type, T.TOPIC);
@@ -202,7 +203,7 @@ check('Signed(key, Revoke) is 101 bytes', R.signed(alice, fill(64, 0), R.revoke(
 	p = parses('must-understand in Signed', R.payload([R.signed(alice, fill(64, 0), t, mu)]));
 	check('must-understand directly in Signed drops the Signed', p[0].dropped, 'must-understand');
 	malformed('must-understand at top level drops the frame', R.payload([t, mu]));
-	malformed('malformed after must-understand still drops the frame', R.payload([R.bundle(mu, R.record(0x29))]));
+	malformed('malformed after must-understand still drops the frame', R.payload([R.bundle(mu, R.record(0x2A))]));
 	p = parses('prefix before must-understand', R.payload([R.bundle(R.fromCall('A'), mu)]));
 	check('prefix before must-understand drops the Bundle', p[0].dropped, 'must-understand');
 }
@@ -389,8 +390,13 @@ check('Signed(key, Revoke) is 101 bytes', R.signed(alice, fill(64, 0), R.revoke(
 	check('Revoke in a Bundle is ignored', p[0].children[0].children[0].effective, false);
 	p = parses('bare Revoke', R.payload([R.revoke('retired')]));
 	check('Revoke outside Signed is ignored', p[0].effective, false);
-	malformed('Revoke reason 2', R.payload([R.record(T.REVOKE, [2])]));
-	malformed('Revoke of 2 bytes', R.payload([R.record(T.REVOKE, [0, 0])]));
+	check('Revoke-Retired is one byte', hex(R.revoke('retired')), '28');
+	check('Revoke-Compromised is one byte', hex(R.revoke('compromised')), '29');
+	p = parses('Revoke-Retired in Signed', R.payload([R.signed(alice, fill(64, 0), R.revoke('retired'))], 128));
+	check('Revoke-Retired reason', p[0].children[0].reason, 'retired');
+	check('Revoke-Retired directly in Signed counts', p[0].children[0].effective, true);
+	p = parses('Revoke followed by a record', R.payload([R.signed(alice, fill(64, 0), R.revoke('retired'), R.revoke('compromised'), R.textUTF8('bye'))]));
+	check('records after a Revoke', p[0].children.map((x) => x.name).join(), 'REVOKE_RETIRED,REVOKE_COMPROMISED,TEXT_UTF8');
 	throws('encode unknown reason', () => R.revoke('bored'));
 }
 
@@ -399,17 +405,20 @@ check('Signed(key, Revoke) is 101 bytes', R.signed(alice, fill(64, 0), R.revoke(
 {
 	let p = parses('Request-Post', R.payload([R.requestPost(parentId)]));
 	check('Request-Post ID', hex(p[0].id), hex(parentId));
-	malformed('Request-Post of 16 bytes', R.payload([R.record(T.REQUEST_POST, fill(16, 0))]));
+	malformed('Request-Post cut short', bytes(T.REQUEST_POST, fill(31, 1)));
+	malformed('Request-Post runs past Bundle', R.payload([R.bundle(bytes(T.REQUEST_POST, fill(16, 1)))]));
 	p = parses('Request-Root 16', R.payload([R.requestRoot(1024, fill(16, 3))]));
 	check('Request-Root needed', p[0].needed, 1024);
 	check('Request-Root hash length', p[0].hlen, 16);
-	check('Request-Root 16 bytes', hex(R.requestRoot(1, fill(16, 3)).subarray(0, 4)), '27120000');
+	check('Request-Root has no length byte', hex(R.requestRoot(1, fill(16, 3)).subarray(0, 4)), '27000003');
 	p = parses('Request-Root 32', R.payload([R.requestRoot(5, fill(32, 3))]));
 	check('Request-Root 32 hash length', p[0].hlen, 32);
 	check('Request-Root 32 needed', p[0].needed, 5);
-	malformed('Request-Root flag says 32, root is 16', R.payload([R.record(T.REQUEST_ROOT, [0, 0x80], fill(16, 0))]));
-	malformed('Request-Root flag says 16, root is 32', R.payload([R.record(T.REQUEST_ROOT, [0, 0], fill(32, 0))]));
-	malformed('Request-Root reserved bits', R.payload([R.record(T.REQUEST_ROOT, [0, 0x04], fill(16, 0))]));
+	malformed('Request-Root flag says 32, root is 16', bytes(T.REQUEST_ROOT, 0, 0x80, fill(16, 1)));
+	malformed('Request-Root header cut short', bytes(T.REQUEST_ROOT, 0));
+	malformed('Request-Root reserved bits', bytes(T.REQUEST_ROOT, 0, 0x04, fill(16, 1)));
+	p = parses('records after Request-Root', R.payload([R.requestRoot(3, fill(16, 3)), R.requestRoot(4, fill(32, 4)), R.requestPost(parentId)]));
+	check('records after Request-Root', p.map((x) => x.name).join(), 'REQUEST_ROOT,REQUEST_ROOT,REQUEST_POST');
 	throws('encode Request-Root needing 0 blocks', () => R.requestRoot(0, fill(16, 0)));
 	parses('signed request', R.payload([R.signed(alice, fill(64, 0), R.requestPost(parentId))]));
 

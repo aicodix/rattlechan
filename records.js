@@ -25,7 +25,8 @@ export const T = Object.freeze({
 	FRAGMENT: 0x25,
 	REQUEST_POST: 0x26,
 	REQUEST_ROOT: 0x27,
-	REVOKE: 0x28,
+	REVOKE_RETIRED: 0x28,
+	REVOKE_COMPROMISED: 0x29,
 	MENTION: 0x30,
 	POSITION: 0x31,
 	TEMPERATURE: 0x32,
@@ -240,6 +241,30 @@ function readRecord(buf, pos, end) {
 }
 
 const strictUTF8 = new TextDecoder('utf-8', { fatal: true });
+
+// Fixed-size core records carry no length byte. Their size follows from
+// the type, for Request-Root from its header.
+const FIXED = new Set([T.REQUEST_POST, T.REQUEST_ROOT, T.REVOKE_RETIRED, T.REVOKE_COMPROMISED]);
+
+function readFixed(buf, pos, end) {
+	const type = buf[pos];
+	let size = 0;
+	if (type === T.REQUEST_POST)
+		size = 32;
+	else if (type === T.REQUEST_ROOT)
+		size = end - pos < 3 ? 2 : 2 + (buf[pos + 2] & 0x80 ? 32 : 16);
+	if (size > end - pos - 1)
+		throw new MalformedError(`${NAMES[type]} runs past its container`, pos);
+	const stop = pos + 1 + size;
+	return {
+		type,
+		name: NAMES[type],
+		offset: pos,
+		end: stop,
+		raw: buf.subarray(pos, stop),
+		body: buf.subarray(pos + 1, stop),
+	};
+}
 
 function checkTextRecord(node) {
 	if (node.type === T.TEXT_UTF8) {
@@ -558,27 +583,20 @@ function parseRecord(buf, node, ctx) {
 		return;
 	}
 	case T.REQUEST_POST:
-		if (n !== 32)
-			bad('Request-Post must be 32 bytes');
 		node.id = node.body;
 		return;
 	case T.REQUEST_ROOT: {
-		if (n < 2)
-			bad('Request-Root too short');
 		const h = u16(node.body, 0);
 		if (h & 0x7C00)
 			bad('Request-Root reserved header bits set');
 		node.needed = (h & 1023) + 1;
 		node.hlen = h >>> 15 ? 32 : 16;
-		if (n !== 2 + node.hlen)
-			bad('Request-Root length does not match its hash flag');
 		node.root = node.body.subarray(2);
 		return;
 	}
-	case T.REVOKE:
-		if (n !== 1 || node.body[0] > 1)
-			bad('Revoke must be one byte, 0 or 1');
-		node.reason = node.body[0] ? 'compromised' : 'retired';
+	case T.REVOKE_RETIRED:
+	case T.REVOKE_COMPROMISED:
+		node.reason = type === T.REVOKE_COMPROMISED ? 'compromised' : 'retired';
 		// only counts directly inside the Signed record of the key it revokes
 		node.effective = ctx.direct === T.SIGNED;
 		return;
@@ -625,7 +643,7 @@ function parseRecords(buf, pos, end, ctx) {
 			pos = p.end;
 			continue;
 		}
-		const node = readRecord(buf, pos, end);
+		const node = FIXED.has(type) ? readFixed(buf, pos, end) : readRecord(buf, pos, end);
 		node.prefixes = pending;
 		node.chain = pending.length ? ctx.chain.concat(pending) : ctx.chain;
 		pending = [];
@@ -754,7 +772,7 @@ export function reply(timestamp, parent, ...parts) {
 }
 
 export const fragment = (block) => record(T.FRAGMENT, bytesOf(block, undefined, 'HYDRA block'));
-export const requestPost = (id) => record(T.REQUEST_POST, bytesOf(id, 32, 'post ID'));
+export const requestPost = (id) => concat([T.REQUEST_POST], bytesOf(id, 32, 'post ID'));
 
 // needed: blocks still needed (1..1024); root: 16 or 32 bytes
 export function requestRoot(needed, root) {
@@ -763,14 +781,14 @@ export function requestRoot(needed, root) {
 		throw new RangeError('HYDRA root must be 16 or 32 bytes');
 	if (!Number.isInteger(needed) || needed < 1 || needed > 1024)
 		throw new RangeError('blocks needed must be 1..1024');
-	return record(T.REQUEST_ROOT, le16((needed - 1) | (root.length === 32 ? 0x8000 : 0)), root);
+	return concat([T.REQUEST_ROOT], le16((needed - 1) | (root.length === 32 ? 0x8000 : 0)), root);
 }
 
 export function revoke(reason) {
-	const r = { retired: 0, compromised: 1 }[reason];
-	if (r === undefined)
+	const type = { retired: T.REVOKE_RETIRED, compromised: T.REVOKE_COMPROMISED }[reason];
+	if (type === undefined)
 		throw new RangeError('revoke reason must be "retired" or "compromised"');
-	return record(T.REVOKE, [r]);
+	return Uint8Array.of(type);
 }
 
 // Optional records

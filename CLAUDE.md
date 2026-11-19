@@ -26,13 +26,6 @@ Match the existing history:
 
 - Prefix ordering rule: check edge cases through nested Bundles.
 - Position: the post timestamp is the fix time; a separate fix time may come later as an extension.
-- SPEC.md sizes look off by one: Signed overhead is type + length + key + sig = 98 bytes, not 97, so `Signed(key, Revoke)` is 101, not 100 (records_test.mjs checks 98 and 101). The maintainer says to leave SPEC.md as is; how the sizes are counted still needs explaining.
-
-## Choices records.js makes where SPEC.md is silent
-
-Each needs confirming in SPEC.md or changing in code:
-
-- Revoke outside Signed is still checked for well-formedness, then ignored (`effective: false`).
 
 ## Next step
 
