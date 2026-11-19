@@ -9,6 +9,7 @@ A message board that travels as sound. The protocol is in SPEC.md (v0 draft, sti
 - Little-endian everywhere.
 - Tabs for indentation.
 - SPEC.md is the source of truth: when code changes the protocol, update SPEC.md in the same commit.
+- When something is unclear, ask instead of guessing. That includes gaps in SPEC.md: ask before deciding them in code.
 - Every module gets a test file `<name>_test.mjs`, run with `node <name>_test.mjs`, no test framework.
 - License: 0BSD.
 
