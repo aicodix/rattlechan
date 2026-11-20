@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1c1b1a">
+<meta name="description" content="A message board that travels as sound">
+<title>Rattlechan</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="stylesheet" href="app.css">
+<!-- Serve this directory with python3 -m http.server and open
+     http://127.0.0.1:8000/ (or the port you gave it) -->
+
+<header>
+	<h1>Rattlechan</h1>
+	<span id="status" class="dim">starting …</span>
+</header>
+
+<main>
+	<section id="log" class="tab">
+		<p id="log-empty" class="dim">Nothing received yet. Start listening in Station.</p>
+		<div id="entries"></div>
+		<p id="log-more" class="dim" hidden></p>
+	</section>
+
+	<section id="station" class="tab" hidden>
+		<h2>Receiver</h2>
+		<div class="row">
+			<button id="listen" class="primary">Listen</button>
+			<select id="input" aria-label="audio input"><option value="">default input</option></select>
+		</div>
+		<div class="meter" aria-hidden="true"><div id="level"></div></div>
+		<p id="receiver" class="dim">Not listening.</p>
+		<label class="file">Decode a recording <input id="recording" type="file" accept="audio/*,.wav"></label>
+
+		<h2>Storage</h2>
+		<p id="persist"></p>
+		<p id="install-hint" class="warn" hidden>The browser may delete this station's data after a week without use. Install Rattlechan (Safari: File or Share, Add to Dock or Add to Home Screen; Chrome: Install) and export now and then.</p>
+		<button id="install" hidden>Install</button>
+		<table id="tiers">
+			<tr><th>Tier</th><th>Used</th><th>Budget (MiB)</th></tr>
+			<tr><td>precious</td><td id="used-precious"></td><td><input id="budget-precious" type="number" min="0" step="1" inputmode="numeric"></td></tr>
+			<tr><td>logged</td><td id="used-logged"></td><td><input id="budget-logged" type="number" min="0" step="1" inputmode="numeric"></td></tr>
+		</table>
+		<p id="last-export" class="dim"></p>
+		<div class="row">
+			<button id="export">Export data</button>
+			<button id="export-secrets">Export secrets</button>
+			<label class="file button">Import <input id="import" type="file" accept=".gz,.tgz,application/gzip"></label>
+		</div>
+		<p id="import-result" class="dim"></p>
+	</section>
+</main>
+
+<nav role="tablist">
+	<button role="tab" data-tab="log" aria-selected="true">Log</button>
+	<button role="tab" data-tab="station" aria-selected="false">Station</button>
+</nav>
+
+<script type="module" src="app.js"></script>

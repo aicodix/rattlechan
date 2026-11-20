@@ -1,0 +1,15 @@
+{
+	"name": "Rattlechan",
+	"short_name": "Rattlechan",
+	"description": "A message board that travels as sound",
+	"start_url": "./",
+	"scope": "./",
+	"display": "standalone",
+	"background_color": "#1c1b1a",
+	"theme_color": "#1c1b1a",
+	"icons": [
+		{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" },
+		{ "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+		{ "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+	]
+}

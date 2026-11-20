@@ -1,0 +1,172 @@
+:root {
+	--bg: #f7f6f3;
+	--card: #ffffff;
+	--fg: #1c1b1a;
+	--dim: #6b6862;
+	--line: #dedbd4;
+	--accent: #b5541c;
+	--ok: #2f7d3a;
+	--bad: #b3261e;
+	--warn: #8a5a00;
+	--chip: #efece6;
+	color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--bg: #1c1b1a;
+		--card: #262523;
+		--fg: #ebe8e2;
+		--dim: #a29e96;
+		--line: #3b3936;
+		--accent: #f08a4b;
+		--ok: #7cc787;
+		--bad: #f2867e;
+		--warn: #e3b456;
+		--chip: #33312e;
+	}
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--fg);
+	font: 16px/1.4 system-ui, -apple-system, sans-serif;
+	padding-bottom: calc(56px + env(safe-area-inset-bottom));
+}
+
+header {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	display: flex;
+	align-items: baseline;
+	gap: 12px;
+	padding: calc(8px + env(safe-area-inset-top)) 16px 8px;
+	background: var(--bg);
+	border-bottom: 1px solid var(--line);
+}
+
+h1 { font-size: 18px; margin: 0; }
+h2 { font-size: 16px; margin: 24px 0 8px; }
+h2:first-child { margin-top: 8px; }
+
+header #status {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	text-align: right;
+	font-size: 14px;
+}
+
+main {
+	max-width: 720px;
+	margin: 0 auto;
+	padding: 8px 16px 16px;
+}
+
+nav {
+	position: fixed;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	display: flex;
+	background: var(--card);
+	border-top: 1px solid var(--line);
+	padding-bottom: env(safe-area-inset-bottom);
+}
+
+nav button {
+	flex: 1;
+	height: 56px;
+	border: 0;
+	border-radius: 0;
+	background: none;
+	color: var(--dim);
+	font: inherit;
+	font-weight: 600;
+}
+
+nav button[aria-selected="true"] { color: var(--accent); box-shadow: inset 0 3px var(--accent); }
+
+button, select, input, .button {
+	font: inherit;
+	color: var(--fg);
+	background: var(--card);
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	padding: 8px 12px;
+	min-height: 44px;
+}
+
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+button.small { min-height: 32px; padding: 4px 8px; font-size: 14px; }
+button:disabled { opacity: 0.5; }
+
+select { min-width: 0; flex: 1; }
+
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+
+.file { display: inline-flex; align-items: center; cursor: pointer; }
+.file input { display: none; }
+label.file:not(.button) { color: var(--accent); text-decoration: underline; min-height: 44px; }
+
+.meter { height: 8px; background: var(--chip); border-radius: 4px; overflow: hidden; margin: 8px 0; }
+.meter div { height: 100%; width: 0; background: var(--ok); transition: width 0.1s; }
+.meter div.hot { background: var(--bad); }
+
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 4px 8px 4px 0; border-bottom: 1px solid var(--line); }
+td input { width: 6em; min-height: 36px; padding: 4px 8px; }
+
+.dim { color: var(--dim); }
+.ok { color: var(--ok); }
+.bad { color: var(--bad); }
+.warn { color: var(--warn); }
+
+.entry {
+	background: var(--card);
+	border: 1px solid var(--line);
+	border-radius: 10px;
+	padding: 10px 12px;
+	margin: 0 0 8px;
+	overflow-wrap: anywhere;
+}
+
+.entry.event { padding: 6px 12px; font-size: 14px; }
+
+.entry-head { font-size: 14px; margin-bottom: 4px; }
+.entry-head .time { color: var(--dim); }
+.call { font-family: ui-monospace, monospace; font-weight: 600; }
+.key, .hash { font-family: ui-monospace, monospace; font-size: 0.9em; color: var(--dim); }
+
+.badge {
+	float: right;
+	font-size: 12px;
+	padding: 1px 6px;
+	border-radius: 6px;
+	background: var(--chip);
+	margin-left: 8px;
+}
+
+.box { border-left: 3px solid var(--line); padding-left: 10px; margin: 6px 0; }
+.box-head { font-size: 14px; }
+
+.post { margin: 6px 0; }
+.post-head { font-size: 16px; }
+.post .dim { font-size: 13px; }
+.part { margin: 4px 0; white-space: pre-wrap; }
+.dropped { opacity: 0.6; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
+.chip { font-size: 13px; padding: 2px 8px; border-radius: 10px; background: var(--chip); }
+
+.picture { display: block; max-width: 100%; max-height: 320px; border-radius: 6px; }
+
+a { color: var(--accent); }
