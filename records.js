@@ -201,7 +201,10 @@ export function verifyKeyed(node, secret) {
 
 // ---------------------------------------------------------------- text
 
-// Decode a text record to a string, or null if the encoding isn't supported
+// Decode a text record to a string, or null if the encoding isn't supported.
+// A U+FEFF is text here, not a byte order mark, so it stays: ignoreBOM for
+// UTF-8 and UTF-16, the only encodings with one (and only there, since
+// Node.js 22 then drops a leading 0xFF in windows-1252)
 // here (0x44..0x4F are reserved). SCSU needs the decoder of scsu.js, here or
 // already in parse().
 export function decodeText(node, scsu = null) {
@@ -210,12 +213,12 @@ export function decodeText(node, scsu = null) {
 		case T.TEXT_SCSU:
 			return node.string ?? (scsu ? scsu.decode(node.body) : null);
 		case T.TEXT_UTF8:
-			return new TextDecoder('utf-8').decode(node.body);
+			return new TextDecoder('utf-8', { ignoreBOM: true }).decode(node.body);
 		case T.TEXT_GB18030:
 			return new TextDecoder('gb18030').decode(node.body);
 		case T.TEXT_TABLE: {
 			const name = TEXT_TABLE[node.body[0]];
-			return name === undefined ? null : new TextDecoder(name).decode(node.body.subarray(1));
+			return name === undefined ? null : new TextDecoder(name, { ignoreBOM: name === 'UTF-16LE' }).decode(node.body.subarray(1));
 		}
 		}
 	} catch {}

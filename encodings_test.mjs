@@ -98,6 +98,11 @@ check('EUC-KR: 안녕', encode('안녕', 'EUC-KR').length, 4);
 check('Big5: 你好', encode('你好', 'Big5').length, 4);
 check('UTF-16LE: a🍕', hex(encode('a🍕', 'UTF-16LE')), '61003cd855df');
 check('UTF-16LE: lone surrogate', encode('a\uD800', 'UTF-16LE'), null);
+check('UTF-16LE: U+FEFF stays text', hex(encode('\uFEFFa', 'UTF-16LE')), 'fffe6100');
+check('GB 18030: U+FEFF', hex(encode('\uFEFF', 'gb18030')), '84319533');
+check('windows-1252: U+FEFF can\'t be there', encode('\uFEFFa', 'windows-1252'), null);
+for (const r of textRecords('\uFEFFПривет'))
+	check(`U+FEFF survives ${r[0].toString(16)} ${r[0] === 0x42 ? R.TEXT_TABLE[r[2]] : ''}`, R.decodeText(R.parse(r)[0]), '\uFEFFПривет');
 check('empty text', hex(encode('', 'windows-1252')), '');
 
 // ------------------------------------------------ picking the smallest

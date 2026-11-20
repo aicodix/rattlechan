@@ -480,6 +480,8 @@ check('Request-Root is 19 or 35 bytes', R.requestRoot(1, fill(16, 0)).length + '
 		R.textTable(200, [1]), R.textSCSU([0x41]), R.textGB18030([0xC4, 0xE3, 0xBA, 0xC3]))]));
 	const t = p[0].children;
 	check('UTF-8', R.decodeText(t[0]), 'Grüße');
+	for (const s of ['\uFEFF', '\uFEFFHi', 'Hi\uFEFF'])
+		check(`UTF-8 keeps U+FEFF in ${JSON.stringify(s)}`, R.decodeText(R.parse(R.textUTF8(s))[0]), s);
 	check('windows-1252', R.decodeText(t[1]), 'Grüße');
 	check('Text-Table index', t[1].table, 19);
 	check('unknown table index', R.decodeText(t[2]), null);

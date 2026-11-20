@@ -2,6 +2,8 @@
 // TextDecoder decodes them all but nothing encodes them, so each encoder is
 // built from its decoder the first time it is needed, by decoding every
 // byte sequence. An encoding this client's TextDecoder lacks is never used.
+// U+FEFF is text here, not a byte order mark: UTF-16LE, the one table
+// encoding with a byte order mark, decodes with ignoreBOM.
 
 import { TEXT_TABLE, textUTF8, textGB18030, textTable, textSCSU } from './records.js';
 
@@ -9,7 +11,7 @@ const encoders = new Map();
 
 function decoder(label) {
 	try {
-		return new TextDecoder(label, { fatal: true });
+		return new TextDecoder(label, { fatal: true, ignoreBOM: label === 'UTF-16LE' });
 	} catch {
 		return null;
 	}
@@ -146,7 +148,7 @@ export function encode(str, label) {
 	}
 	let back;
 	try {
-		back = new TextDecoder(label, { fatal: true }).decode(out);
+		back = new TextDecoder(label, { fatal: true, ignoreBOM: label === 'UTF-16LE' }).decode(out);
 	} catch {
 		return null;
 	}

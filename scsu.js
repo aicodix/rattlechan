@@ -16,7 +16,7 @@ export async function loadScsu(source = new URL('./scsu.wasm', import.meta.url))
 	const textBuf = new Uint8Array(wasm.memory.buffer, wasm.text.value, BUF_MAX);
 	const scsuBuf = new Uint8Array(wasm.memory.buffer, wasm.scsu.value, BUF_MAX);
 	const utf8 = new TextEncoder();
-	const strict = new TextDecoder('utf-8', { fatal: true });
+	const strict = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
 	// a string to SCSU bytes; lone surrogates become U+FFFD as in UTF-8
 	const encode = (str) => {

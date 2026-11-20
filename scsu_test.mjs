@@ -57,6 +57,8 @@ for (const script of ['Russian', 'Greek', 'Arabic', 'Hebrew', 'Hindi', 'Tamil', 
 check('ASCII stays ASCII', String.fromCharCode(...S.encode('Hello, World!')), 'Hello, World!');
 check('empty text', S.decode(S.encode('')), '');
 check('lone surrogate becomes U+FFFD', S.decode(S.encode('a\uD800b')), 'a�b');
+for (const s of ['\uFEFF', '\uFEFFHi', 'Hi\uFEFF'])
+	check(`U+FEFF stays in ${JSON.stringify(s)}`, S.decode(S.encode(s)), s);
 
 // ---------------------------------------------------- invalid input
 
