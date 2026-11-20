@@ -42,6 +42,11 @@ Early. The protocol is a v0 draft in [SPEC.md](SPEC.md) and will change while th
 * [encodings_test.html](encodings_test.html): the same check in the browser, whose decoders are the reference; open it from `python3 -m http.server`
 * [storage.js](storage.js): the station's storage on the Origin Private File System, or in memory: frames as received, one file each, bounded by a byte budget; revocations forever; data and secrets as JSON
 * [storage_test.mjs](storage_test.mjs): the store in memory, run with `node storage_test.mjs`
+* [storage_test.html](storage_test.html): the store on OPFS, export and import in the browser; open it from `python3 -m http.server`
+* [tar.js](tar.js): writing and reading tar archives (ustar) in memory
+* [tar_test.mjs](tar_test.mjs): round trips and a cross-check with the system's tar, run with `node tar_test.mjs`
+* [archive.js](archive.js): export of the storage as .tar.gz, data and secrets in separate archives, and import that adds what is missing
+* [archive_test.mjs](archive_test.mjs): export, import, merging and hostile archives, run with `node archive_test.mjs`
 * [robusto_test.mjs](robusto_test.mjs): encoder to decoder in Node.js, every short mode, pings, noise and odd chunk sizes, run with `node robusto_test.mjs`
 
 ## License
