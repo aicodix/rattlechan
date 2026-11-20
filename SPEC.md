@@ -10,7 +10,7 @@
 
 ## Status and principles
 
-This is Rattlechan v0, the first public version of the protocol. Posts travel over the ROBUSTO OFDM modem (12 to 61440 bytes per frame), optionally split by [HYDRA](https://github.com/xdsopl/hydra) and optionally signed with [CRYPTO](https://github.com/xdsopl/crypto).
+This is Rattlechan v0, the first public version of the protocol. Posts travel over the ROBUSTO OFDM modem (8 to 61440 bytes per frame), optionally split by [HYDRA](https://github.com/xdsopl/hydra) and optionally signed with [CRYPTO](https://github.com/xdsopl/crypto).
 
 - **Self-contained.** Nothing is sticky. Every post carries everything needed to show it and compute its ID, so it can be stored, bundled and retransmitted on its own. Avatars and key labels are decoration learned from other posts; a post is complete without them.
 - **Optional layers.** Signing (CRYPTO) and splitting (HYDRA) are independent. A minimal client only parses records and computes BLAKE2s, and shows signed posts as unverified.
