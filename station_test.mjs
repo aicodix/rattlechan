@@ -26,7 +26,7 @@ const H = await loadHydra(await file('hydra.wasm'));
 
 let clock = 1763380000000;
 const store = await openStore(memoryBackend(), { now: () => clock });
-const S = openStation({ store, crypto: C, hydra: H });
+const S = await openStation({ store, crypto: C, hydra: H });
 
 // ------------------------------------------------------------ receiving
 
@@ -61,7 +61,7 @@ check('malformed: store unchanged', (await store.frames()).length, before);
 
 // a station without CRYPTO leaves signatures unverified
 {
-	const plain = openStation({ store: await openStore(memoryBackend()) });
+	const plain = await openStation({ store: await openStore(memoryBackend()) });
 	const p = await plain.receive(frame);
 	check('without crypto: unverified', p.nodes[0].verified, null);
 }
@@ -96,7 +96,7 @@ check('bad block dropped', typeof (await S.receive(bad)).error, 'string');
 // ------------------------------------------------------------ replaying
 
 {
-	const again = openStation({ store, crypto: C, hydra: H });
+	const again = await openStation({ store, crypto: C, hydra: H });
 	const all = await again.replay();
 	check('replay: every stored frame', all.length, (await store.frames()).length);
 	check('replay: oldest first', all.every((x, i) => !i || all[i - 1].arrival <= x.arrival), true);
@@ -104,6 +104,80 @@ check('bad block dropped', typeof (await S.receive(bad)).error, 'string');
 	check('replay: mode kept', all[0].mode, 42);
 	const rebuilt = all.flatMap((x) => x.fragments).filter((f) => f.nodes);
 	check('replay: reassembles again', rebuilt.length === 1 && rebuilt[0].used, long.length);
+}
+
+// --------------------------------------------------------------- trust
+
+{
+	clock += 60000;
+	const st = await openStore(memoryBackend(), { now: () => clock });
+	const T1 = await openStation({ store: st, crypto: C, hydra: H });
+	const anna = C.newPrivateKey(), annaKey = hex(C.fingerprint(anna));
+	const other = C.newPrivateKey();
+	const pic = Uint8Array.of(1, 2, 3);
+
+	let e = await T1.receive(R.payload([C.signRecords(anna, R.fromCall('DL1ABC'), R.fromName(R.textUTF8('Anna')), post)]));
+	check('untrusted: logged', e.tier, 'logged');
+	check('learned call sign', T1.keyInfo(annaKey).callSign, 'DL1ABC');
+	check('learned name', R.decodeText(T1.keyInfo(annaKey).name), 'Anna');
+	check('not trusted yet', T1.keyInfo(annaKey).trusted, false);
+	const avatarFrame = await T1.receive(R.payload([C.signRecords(anna, R.avatar(pic))]));
+	check('learned avatar', hex(T1.keyInfo(annaKey).avatar), '010203');
+	await T1.receive(R.payload([C.signRecords(other, post)]));
+	const unsigned = await T1.receive(R.payload([R.fromCall('DL1ABC'), R.textUTF8('bare')]));
+	// a forged signature teaches nothing
+	const lie = R.payload([C.signRecords(anna, R.fromCall('EVIL'), post)]);
+	lie[60] ^= 1;
+	await T1.receive(lie);
+	check('forged: nothing learned', T1.keyInfo(annaKey).callSign, 'DL1ABC');
+
+	check('trusting moves two frames', await T1.setTrust(annaKey, true), 2);
+	check('trusted', T1.keyInfo(annaKey).trusted, true);
+	check('post frame precious', e.tier, 'precious');
+	check('avatar frame precious', avatarFrame.tier, 'precious');
+	check('unsigned stays logged', unsigned.tier, 'logged');
+	check('precious tier holds them', (await st.frames('precious')).length, 2);
+	check('trust list stored', (await st.getData('trust')).trusted[0], annaKey);
+
+	// a new post of a trusted key goes straight to precious and renews its avatar
+	const before = avatarFrame.name;
+	clock += 1000;
+	e = await T1.receive(R.payload([C.signRecords(anna, R.reply(1763380200, new Uint8Array(32), R.textUTF8('again')))]));
+	check('new post precious', e.tier, 'precious');
+	check('avatar renewed', avatarFrame.name !== before && (await st.frames()).some((f) => f.name === avatarFrame.name), true);
+	check('renewed avatar still known', T1.keyInfo(annaKey).avatarFrame, avatarFrame.name);
+
+	// another station on the same store sees the trust and the tiers
+	const T2 = await openStation({ store: st, crypto: C, hydra: H });
+	await T2.replay();
+	check('replay: trust kept', T2.isTrusted(annaKey), true);
+	check('replay: learned again', T2.keyInfo(annaKey).callSign, 'DL1ABC');
+	check('replay: nothing to move', await T2.setTrust(annaKey, true), 0);
+
+	check('distrusting moves three frames down', await T2.setTrust(annaKey, false), 3);
+	check('nothing precious left', (await st.frames('precious')).length, 0);
+	check('trust list empty', (await st.getData('trust')).trusted.length, 0);
+
+	// fragments move up together once their payload turns out precious
+	await T2.setTrust(annaKey, true);
+	const big = R.payload([C.signRecords(anna, R.topic(1763380300, 'Long', R.textUTF8('y'.repeat(1500))))]);
+	const enc2 = H.encode(big, { budget: 300 });
+	const frags = Array.from({ length: enc2.K }, (_, i) => enc2.fragment(i));
+	const got = [];
+	for (const f of frags)
+		got.push(await T2.receive(R.payload([f])));
+	check('fragments: first ones waited in logged', got.length > 1 && (await st.frames('precious')).length >= 3 + got.length, true);
+	check('fragments: all precious now', got.every((g) => g.tier === 'precious'), true);
+
+	// an import that brings a trust list: replay puts frames where it says
+	const st2 = await openStore(memoryBackend());
+	for (const f of await st.frames())
+		await st2.backend.write(`logged/${f.name}`, await st.readFrame(f.name));
+	await st2.putData('trust', { trusted: [annaKey] });
+	await st2.reload();
+	const T3 = await openStation({ store: st2, crypto: C, hydra: H });
+	await T3.replay();
+	check('import: precious after replay', (await st2.frames('precious')).length, (await st.frames('precious')).length);
 }
 
 console.log(failed ? `${failed} of ${checks} checks failed` : `all ${checks} checks passed`);

@@ -9,6 +9,14 @@
 	--bad: #b3261e;
 	--warn: #8a5a00;
 	--chip: #efece6;
+	--id-0: #b5541c;
+	--id-1: #2f7d3a;
+	--id-2: #2a64a8;
+	--id-3: #7d3fa0;
+	--id-4: #946a10;
+	--id-5: #1b7f7f;
+	--id-6: #a83565;
+	--id-7: #5c6b1f;
 	color-scheme: light;
 }
 
@@ -26,6 +34,14 @@
 		--bad: #f2867e;
 		--warn: #e3b456;
 		--chip: #33312e;
+		--id-0: #f08a4b;
+		--id-1: #7cc787;
+		--id-2: #7fb2e6;
+		--id-3: #c79be0;
+		--id-4: #e3b456;
+		--id-5: #6cc9c9;
+		--id-6: #e88bb4;
+		--id-7: #b5c46e;
 		color-scheme: dark;
 	}
 }
@@ -41,6 +57,14 @@
 	--bad: #f2867e;
 	--warn: #e3b456;
 	--chip: #33312e;
+	--id-0: #f08a4b;
+	--id-1: #7cc787;
+	--id-2: #7fb2e6;
+	--id-3: #c79be0;
+	--id-4: #e3b456;
+	--id-5: #6cc9c9;
+	--id-6: #e88bb4;
+	--id-7: #b5c46e;
 	color-scheme: dark;
 }
 
@@ -187,6 +211,32 @@ td input { width: 6em; min-height: 36px; padding: 4px 8px; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
 .chip { font-size: 13px; padding: 2px 8px; border-radius: 10px; background: var(--chip); }
+
+/* identicons, from the key: colour classes over the --id-* palette */
+.identicon { background: var(--chip); border-radius: 6px; flex: none; vertical-align: middle; }
+.id-0 { fill: var(--id-0); } .id-1 { fill: var(--id-1); } .id-2 { fill: var(--id-2); } .id-3 { fill: var(--id-3); }
+.id-4 { fill: var(--id-4); } .id-5 { fill: var(--id-5); } .id-6 { fill: var(--id-6); } .id-7 { fill: var(--id-7); }
+.face { display: inline-flex; flex: none; }
+.avatar { display: block; width: 32px; height: 32px; border-radius: 6px; object-fit: cover; }
+
+.box-head.signer { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.who { flex: 1; min-width: 0; }
+button.trust { flex: none; }
+.chip.unverified { background: none; border: 1px dashed var(--line); color: var(--dim); }
+
+.trust-dialog {
+	max-width: min(420px, calc(100vw - 32px));
+	background: var(--card);
+	color: var(--fg);
+	border: 1px solid var(--line);
+	border-radius: 12px;
+	padding: 16px;
+}
+.trust-dialog::backdrop { background: rgb(0 0 0 / 0.5); }
+.trust-dialog h3 { margin: 0 0 12px; }
+.trust-dialog .row { justify-content: flex-end; }
+.fingerprint { font-family: ui-monospace, monospace; font-size: 15px; letter-spacing: 0.02em; }
+.fingerprint span { display: block; }
 
 .picture { display: block; max-width: 100%; max-height: 320px; width: auto; height: auto; border-radius: 6px; }
 .animated { display: inline-block; max-width: 100%; -webkit-touch-callout: none; user-select: none; }

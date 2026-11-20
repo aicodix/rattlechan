@@ -47,10 +47,10 @@ Early. The protocol is a v0 draft in [SPEC.md](SPEC.md) and will change while th
 * [archive.js](archive.js): export of the storage as .tar.gz, data and secrets in separate archives, and import that adds what is missing
 * [archive_test.mjs](archive_test.mjs): export, import, merging and hostile archives, run with `node archive_test.mjs`
 * [robusto_test.mjs](robusto_test.mjs): encoder to decoder in Node.js, every short mode, pings, noise and odd chunk sizes, run with `node robusto_test.mjs`
-* [station.js](station.js): what the station does with a received frame: parse, check signatures, reassemble Fragments, store, and replay the stored frames at startup
+* [station.js](station.js): what the station does with a received frame: parse, check signatures, reassemble Fragments, learn about keys, store in the tier trust puts it in, and replay the stored frames at startup
 * [station_test.mjs](station_test.mjs): frames through the station into a store in memory, run with `node station_test.mjs`
 * [index.html](index.html), [app.js](app.js), [app.css](app.css), [render.js](render.js): the GUI, so far a receiver: a log of everything received, and the station's receiver and storage; serve the directory with `python3 -m http.server` and open it
-* [render_test.mjs](render_test.mjs): what render.js does without a document, such as telling animated WebP apart, run with `node render_test.mjs`
+* [render_test.mjs](render_test.mjs): what render.js does without a document, such as telling animated WebP apart and identicons, run with `node render_test.mjs`
 * [receiver.js](receiver.js), [capture_worklet.js](capture_worklet.js), [decoder_worker.js](decoder_worker.js): microphone to AudioWorklet to the ROBUSTO decoder in a worker, and decoding recordings
 * [manifest.webmanifest](manifest.webmanifest), [sw.js](sw.js), [icon.svg](icon.svg), icon-180.png, icon-192.png, icon-512.png: what makes it an installable web app that works offline
 

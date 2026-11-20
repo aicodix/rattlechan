@@ -43,7 +43,18 @@ function encodingOf(node) {
 
 const fixed = (v, scale, digits) => (v / scale).toFixed(digits);
 
-function prefix(p) {
+// What the page knows about keys, set by the app with configure():
+//   keyInfo(hex) -> { trusted, callSign, name, avatar }
+//   trust(hex, on) is called when the user asks to trust or not
+let station = { keyInfo: (key) => ({ key, trusted: false }), trust: () => {} };
+export const configure = (s) => {
+	station = s;
+};
+const trusted = (key) => key !== null && station.keyInfo(key).trusted;
+
+// From prefixes are believed only on posts signed by a trusted key; anyone
+// can claim a call sign or name, so otherwise they are marked
+function prefix(p, believed) {
 	const what = {
 		[T.FROM_CALL]: 'from', [T.FROM_NAME]: 'from', [T.TO_KEY]: 'to key', [T.TO_CALL]: 'to',
 		[T.TO_NAME]: 'to', [T.TO_GROUP_NAME]: 'to group', [T.TO_GROUP_KEY]: 'to group key',
@@ -55,7 +66,125 @@ function prefix(p) {
 		handle = el('span.key', short(p.handle));
 	else
 		handle = text(p.handle, 'name');
-	return el('span.chip', `${what} `, handle);
+	if (p.type !== T.FROM_CALL && p.type !== T.FROM_NAME || believed)
+		return el('span.chip', `${what} `, handle);
+	const chip = el('span.chip.unverified', `${what} `, handle, '?');
+	chip.title = 'unverified: anyone can claim this';
+	return chip;
+}
+
+// ------------------------------------------------------------ identicons
+
+// A key's identicon: a mirrored 5x5 grid in one of 8 colours, from its
+// fingerprint. The colours are --id-0 .. --id-7 in app.css.
+const SVG = 'http://www.w3.org/2000/svg';
+export function identiconCells(key) {
+	const cells = [];
+	for (let i = 0; i < 15; ++i)
+		if (key[1 + (i >> 3)] >> (i & 7) & 1) {
+			const x = i % 3, y = Math.floor(i / 3);
+			cells.push([x, y]);
+			if (x < 2)
+				cells.push([4 - x, y]);
+		}
+	return { colour: key[0] % 8, cells };
+}
+
+export function identicon(key, size = 32) {
+	const { colour, cells } = identiconCells(key);
+	const svg = document.createElementNS(SVG, 'svg');
+	svg.setAttribute('viewBox', '-0.5 -0.5 6 6');
+	svg.setAttribute('width', size);
+	svg.setAttribute('height', size);
+	svg.setAttribute('class', `identicon id-${colour}`);
+	svg.setAttribute('role', 'img');
+	svg.setAttribute('aria-label', `identicon of key ${short(key)}`);
+	for (const [x, y] of cells) {
+		const r = document.createElementNS(SVG, 'rect');
+		r.setAttribute('x', x);
+		r.setAttribute('y', y);
+		r.setAttribute('width', 1);
+		r.setAttribute('height', 1);
+		svg.append(r);
+	}
+	return svg;
+}
+
+const fromHex = (h) => Uint8Array.from(h.match(/../g), (b) => parseInt(b, 16));
+
+// a trusted key's avatar, or its identicon until there is one
+function face(key, size = 32) {
+	const info = station.keyInfo(key);
+	const icon = identicon(fromHex(key), size);
+	if (!info.trusted || !info.avatar)
+		return icon;
+	const wrap = el('span.face', icon);
+	const blob = new Blob([info.avatar], { type: 'image/webp' });
+	(animatedWebP(info.avatar) ? animated(blob, 'avatar', 'avatar') : Promise.resolve(Object.assign(el('img.avatar'), { src: URL.createObjectURL(blob), alt: 'avatar' })))
+		.then((pic) => icon.replaceWith(pic))
+		.catch(() => {});
+	return wrap;
+}
+
+// who signed: face, then call sign and name once trusted, the short key
+// otherwise, and the button to trust or stop trusting
+function signer(n) {
+	const key = hex(n.key);
+	const info = station.keyInfo(key);
+	const who = el('span.who');
+	if (info.trusted && (info.callSign || info.name)) {
+		if (info.callSign)
+			who.append(el('span.call', info.callSign));
+		if (info.name)
+			who.append(info.callSign ? ' ' : '', text(info.name, 'name'));
+		who.append(' ', el('span.key', short(n.key)));
+	} else {
+		who.append('key ', el('span.key', short(n.key)));
+	}
+	if (info.trusted)
+		who.append(' ', el('span.ok', 'trusted'));
+	const button = el('button.small.trust', info.trusted ? 'Untrust' : 'Trust');
+	button.onclick = () => station.trust(key, !info.trusted);
+	return [face(key), who, button];
+}
+
+// Asks whether to trust a key, showing its whole fingerprint to compare
+// with its owner. Resolves to true or false.
+export function confirmTrust(key) {
+	const info = station.keyInfo(key);
+	const groups = key.match(/.{4}/g);
+	const fp = el('p.fingerprint');
+	for (let i = 0; i < groups.length; i += 4)
+		fp.append(el('span', groups.slice(i, i + 4).join(' ')));
+	const says = [];
+	if (info.callSign)
+		says.push(el('span.call', info.callSign));
+	if (info.name)
+		says.push(says.length ? ' ' : '', text(info.name, 'name'));
+	const cancel = el('button', 'Cancel');
+	const ok = el('button.primary', 'Trust');
+	const dialog = el('dialog.trust-dialog',
+		el('h3', 'Trust this key?'),
+		identicon(fromHex(key), 64),
+		fp,
+		says.length ? el('p', 'It says it is ', ...says, '.') : el('p.dim', 'It has not said who it is.'),
+		el('p.dim', 'Compare the fingerprint with its owner, in person or over a channel you trust. Posts signed by a trusted key show its call sign, name and avatar, and are kept in the precious tier.'),
+		el('div.row', cancel, ok));
+	document.body.append(dialog);
+	return new Promise((resolve) => {
+		const done = (answer) => {
+			dialog.close();
+			dialog.remove();
+			resolve(answer);
+		};
+		cancel.onclick = () => done(false);
+		ok.onclick = () => done(true);
+		dialog.oncancel = (e) => {
+			e.preventDefault();
+			done(false);
+		};
+		dialog.showModal();
+	});
 }
 
 function position(n) {
@@ -110,8 +239,9 @@ const players = new WeakMap();
 // Nothing moves by itself: an animated picture shows its first frame and
 // plays only while the mouse is over it, or while a finger is on its
 // entry (see entry()), each time from the start
-async function animated(blob, label) {
+async function animated(blob, label, cls = 'picture') {
 	const frame = await still(blob);
+	frame.className = cls;
 	frame.setAttribute('role', 'img');
 	frame.setAttribute('aria-label', `${label}, animated`);
 	const wrap = el('span.animated', frame);
@@ -119,7 +249,7 @@ async function animated(blob, label) {
 	const play = () => {
 		if (img)
 			return;
-		img = el('img.picture');
+		img = el(`img.${cls}`);
 		img.alt = label;
 		img.src = URL.createObjectURL(blob);
 		frame.replaceWith(img);
@@ -149,8 +279,9 @@ function touchToPlay(box) {
 		box.addEventListener(type, (e) => e.pointerType === 'touch' && all('stop'));
 }
 
-// a WebP from a stranger is only drawn when asked for
-function picture(n, label) {
+// a WebP from a stranger is only drawn when asked for, one under the
+// signature of a trusted key right away
+function picture(n, label, key) {
 	const b = el('button.small', `show ${label}, ${bytes(n.body.length)}`);
 	b.onclick = async () => {
 		const blob = new Blob([n.body], { type: 'image/webp' });
@@ -167,10 +298,12 @@ function picture(n, label) {
 		img.alt = label;
 		b.replaceWith(img);
 	};
-	return el('div.part', b, n.signer ? el('span.dim', ` for key ${short(n.signer)}`) : '');
+	if (trusted(key))
+		queueMicrotask(() => b.onclick());
+	return el('div.part', b, label === 'avatar' && key ? el('span.dim', ` for key ${key.slice(0, 8)}`) : '');
 }
 
-function leaf(n) {
+function leaf(n, key = null) {
 	switch (n.type) {
 	case T.TEXT_UTF8:
 	case T.TEXT_GB18030:
@@ -195,9 +328,9 @@ function leaf(n) {
 	case T.MENTION:
 		return el('div.part', '↗ ', el('span.key', short(n.id)));
 	case T.WEBP:
-		return picture(n, 'picture');
+		return picture(n, 'picture', key);
 	case T.AVATAR:
-		return picture(n, 'avatar');
+		return picture(n, 'avatar', key);
 	case T.CODEC2:
 		return el('div.part', `🔊 Codec2 mode ${n.mode}, ${bytes(n.body.length - 1)}`);
 	case T.MIME:
@@ -215,7 +348,7 @@ function leaf(n) {
 	return el('div.part.dim', `unknown record 0x${n.type.toString(16).padStart(2, '0')}, ${bytes(n.body?.length ?? 0)}`);
 }
 
-function post(n) {
+function post(n, key) {
 	const head = el('div.post-head');
 	if (n.type === T.TOPIC)
 		head.append(el('strong', text(n.subject, 'subject')));
@@ -223,7 +356,7 @@ function post(n) {
 		head.append('↩ reply to ', el('span.key', short(n.parent)));
 	const e = el('div.post', head,
 		el('div.dim', when(n.timestamp * 1000), n.id ? ` · ${short(n.id)}` : ''),
-		...n.parts.map(leaf));
+		...n.parts.map((p) => leaf(p, key)));
 	return e;
 }
 
@@ -233,25 +366,30 @@ const DROPPED = {
 	empty: 'empty post, dropped',
 };
 
+// only a verified signature puts a face and a trust button on it
 function signed(n) {
-	const state = n.verified === true ? el('span.ok', '✓ signed') : n.verified === false ? el('span.bad', '✗ signed') : el('span.dim', '? signed (unchecked)');
-	return el('div.box', el('div.box-head', state, ' by key ', el('span.key', short(n.key))), n.dropped ? null : nodes(n.children));
+	if (n.verified !== true) {
+		const state = n.verified === false ? el('span.bad', '✗ signed') : el('span.dim', '? signed (unchecked)');
+		return el('div.box', el('div.box-head', state, ' by key ', el('span.key', short(n.key))), n.dropped ? null : nodes(n.children));
+	}
+	return el('div.box', el('div.box-head.signer', el('span.ok', '✓'), ...signer(n)), n.dropped ? null : nodes(n.children, hex(n.key)));
 }
 
-export function node(n) {
+// key: the hex key of the innermost verified signature around n, or null
+export function node(n, key = null) {
 	let e;
 	if (n.type === T.SIGNED)
 		e = signed(n);
 	else if (n.type === T.KEYED)
 		e = el('div.box', el('div.box-head', el('span.dim', '🔑 keyed, tag '), el('span.key', short(n.tag))), nodes(n.children));
 	else if (n.type === T.BUNDLE)
-		e = el('div.box', el('div.box-head.dim', 'bundle'), nodes(n.children));
+		e = el('div.box', el('div.box-head.dim', 'bundle'), nodes(n.children, key));
 	else if (n.type === T.TOPIC || n.type === T.REPLY)
-		e = post(n);
+		e = post(n, key);
 	else
-		e = leaf(n);
+		e = leaf(n, key);
 	if (n.prefixes?.length)
-		e.prepend(el('div.chips', ...n.prefixes.map(prefix)));
+		e.prepend(el('div.chips', ...n.prefixes.map((p) => prefix(p, trusted(key)))));
 	if (n.dropped) {
 		e.classList.add('dropped');
 		e.prepend(el('div.bad', DROPPED[n.dropped] ?? n.dropped));
@@ -259,7 +397,7 @@ export function node(n) {
 	return e;
 }
 
-export const nodes = (list) => el('div.nodes', ...list.map(node));
+export const nodes = (list, key = null) => el('div.nodes', ...list.map((n) => node(n, key)));
 
 // the head line of an entry or event: time, call sign and the rest
 export function head(arrival, callSign, ...rest) {

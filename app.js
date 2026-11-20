@@ -69,30 +69,58 @@ const [crypto, hydra] = await Promise.all([
 	loadCrypto().catch(() => null),
 	loadHydra().catch(() => null),
 ]);
-station = openStation({ store, crypto, hydra });
-
 // ----------------------------------------------------------------- log
 
-let shown = 0;
+// what the log shows, newest last: () => element, so it can be drawn
+// again when trust changes what an entry looks like
+let items = [];
 
-function add(element) {
+function add(draw) {
+	items.push(draw);
 	$('log-empty').hidden = true;
-	$('entries').prepend(element);
-	if (++shown > SHOWN) {
+	$('entries').prepend(draw());
+	if (items.length > SHOWN) {
+		items.shift();
 		$('entries').lastElementChild.remove();
-		--shown;
 		$('log-more').hidden = false;
 		$('log-more').textContent = `Only the newest ${SHOWN} are shown.`;
 	}
 }
 
-for (const e of await station.replay())
-	add(view.entry(e));
+function redraw() {
+	$('entries').replaceChildren(...items.map((draw) => draw()).reverse());
+	$('log-empty').hidden = items.length > 0;
+}
+
+// a fresh station on the store, its frames in the log
+async function restart() {
+	station = await openStation({ store, crypto, hydra });
+	items = [];
+	$('entries').replaceChildren();
+	$('log-more').hidden = true;
+	for (const e of await station.replay())
+		add(() => view.entry(e));
+	$('log-empty').hidden = items.length > 0;
+}
+
+// asking before trusting, then moving the key's frames
+view.configure({
+	keyInfo: (key) => station.keyInfo(key),
+	trust: async (key, on) => {
+		if (on && !await view.confirmTrust(key))
+			return;
+		await station.setTrust(key, on);
+		redraw();
+		refreshStorage();
+	},
+});
+
+await restart();
 
 if (!crypto || !hydra)
 	status(`${!crypto ? 'CRYPTO' : 'HYDRA'} failed to load: ${!crypto ? 'signatures stay unchecked' : 'fragments stay apart'}`, 'warn');
 else if ($('status').textContent === 'starting …')
-	status(`${shown} frames`);
+	status(`${items.length} frames`);
 
 // ------------------------------------------------------------- receiving
 
@@ -113,14 +141,15 @@ async function handle(events) {
 				const e = await station.receive(ev.payload, {
 					arrival, callSign: ev.callSign || null, mode: ev.mode, snr: ev.snr, bitFlips: ev.bitFlips,
 				});
-				add(view.entry(e));
+				add(() => view.entry(e));
 				status(`frame from ${ev.callSign || '—'}`);
 			} catch (err) {
-				add(view.el('article.entry', view.head(arrival, ev.callSign), view.el('div.bad', `not kept: ${err.message}`)));
+				const message = err.message;
+				add(() => view.el('article.entry', view.head(arrival, ev.callSign), view.el('div.bad', `not kept: ${message}`)));
 			}
 		} else {
 			receiving = false;
-			add(view.event(ev, arrival));
+			add(() => view.event(ev, arrival));
 			if (ev.type === 'error')
 				status(`${ev.what} error`, 'warn');
 		}
@@ -308,12 +337,7 @@ $('import').onchange = async () => {
 		const gone = await store.reload();
 		$('import-result').textContent = `${file.name}: ${r.added.length} added, ${r.kept.length} already there, ${r.skipped.length} skipped${gone.length ? `, ${gone.length} evicted` : ''}.`;
 		// rebuild the log from the store
-		station = openStation({ store, crypto, hydra });
-		$('entries').replaceChildren();
-		shown = 0;
-		for (const e of await station.replay())
-			add(view.entry(e));
-		$('log-empty').hidden = shown > 0;
+		await restart();
 	} catch (err) {
 		$('import-result').textContent = `Can't import ${file.name}: ${err.message}`;
 	}
@@ -368,11 +392,7 @@ $('delete-all').onclick = async () => {
 				if (key.startsWith('rattlechan.') && key !== 'rattlechan.theme')
 					localStorage.removeItem(key);
 		} catch {}
-		station = openStation({ store, crypto, hydra });
-		$('entries').replaceChildren();
-		shown = 0;
-		$('log-empty').hidden = false;
-		$('log-more').hidden = true;
+		await restart();
 		$('import-result').textContent = '';
 		$('delete-result').textContent = `Deleted ${n} file${n === 1 ? '' : 's'}.`;
 		status('all data deleted');
