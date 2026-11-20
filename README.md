@@ -34,6 +34,9 @@ Early. The protocol is a v0 draft in [SPEC.md](SPEC.md) and will change while th
 * [hydra_test.mjs](hydra_test.mjs): tests with HYDRA's planning table and a lossy channel, run with `node hydra_test.mjs`
 * [robusto_encoder_44100.wasm](robusto_encoder_44100.wasm), [robusto_encoder_48000.wasm](robusto_encoder_48000.wasm), [robusto_decoder_44100.wasm](robusto_decoder_44100.wasm), [robusto_decoder_48000.wasm](robusto_decoder_48000.wasm): the ROBUSTO modules from the robusto branch of [aicodix/modem](https://github.com/aicodix/modem/tree/robusto), copied as they are from its `docs/temp/` at commit 63eb078
 * [robusto.js](robusto.js): glue for the ROBUSTO modules: picking a mode, encoding frames and pings to audio, and a streaming decoder that turns samples into events
+* [scsu.wasm](scsu.wasm): the [SCSU](https://github.com/xdsopl/scsu) module, copied as it is from its `docs/scsu.wasm` at commit 2f13b28
+* [scsu.js](scsu.js): glue for scsu.wasm: encoding and decoding SCSU, the decoder for the parser, and the smaller of Text-UTF-8 and Text-SCSU for a string
+* [scsu_test.mjs](scsu_test.mjs): round trips in 15 scripts, invalid input and SCSU in posts, run with `node scsu_test.mjs`
 * [robusto_test.mjs](robusto_test.mjs): encoder to decoder in Node.js, every short mode, pings, noise and odd chunk sizes, run with `node robusto_test.mjs`
 
 ## License
