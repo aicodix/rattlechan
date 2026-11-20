@@ -46,6 +46,9 @@ export const T = Object.freeze({
 
 const NAMES = Object.fromEntries(Object.entries(T).map(([k, v]) => [v, k]));
 
+// SCSU decodes at most 2^20 bytes
+export const SCSU_MAX = 1 << 20;
+
 // HYDRA blocks are at most 8192 bytes
 export const FRAGMENT_MAX = 8192;
 
@@ -199,10 +202,13 @@ export function verifyKeyed(node, secret) {
 // ---------------------------------------------------------------- text
 
 // Decode a text record to a string, or null if the encoding isn't supported
-// here (SCSU needs its WebAssembly module, 0x44..0x4F are reserved).
-export function decodeText(node) {
+// here (0x44..0x4F are reserved). SCSU needs the decoder of scsu.js, here or
+// already in parse().
+export function decodeText(node, scsu = null) {
 	try {
 		switch (node.type) {
+		case T.TEXT_SCSU:
+			return node.string ?? (scsu ? scsu.decode(node.body) : null);
 		case T.TEXT_UTF8:
 			return new TextDecoder('utf-8').decode(node.body);
 		case T.TEXT_GB18030:
@@ -272,7 +278,16 @@ function readFixed(buf, pos, end) {
 	};
 }
 
-function checkTextRecord(node) {
+function checkTextRecord(node, opts) {
+	if (node.type === T.TEXT_SCSU) {
+		if (node.body.length > SCSU_MAX)
+			throw new MalformedError('Text-SCSU longer than SCSU decodes', node.offset);
+		if (opts.scsu) {
+			node.string = opts.scsu.decode(node.body);
+			if (node.string === null)
+				throw new MalformedError('invalid SCSU', node.offset);
+		}
+	}
 	if (node.type === T.TEXT_UTF8) {
 		try {
 			strictUTF8.decode(node.body);
@@ -287,7 +302,7 @@ function checkTextRecord(node) {
 	}
 }
 
-function parsePrefix(buf, pos, end) {
+function parsePrefix(buf, pos, end, opts) {
 	const type = buf[pos];
 	const node = { type, name: NAMES[type] ?? null, offset: pos };
 	let next;
@@ -312,7 +327,7 @@ function parsePrefix(buf, pos, end) {
 		if (pos + 1 >= end || !isText(buf[pos + 1]))
 			throw new MalformedError('name handle is not a text record', pos);
 		const text = readRecord(buf, pos + 1, end);
-		checkTextRecord(text);
+		checkTextRecord(text, opts);
 		node.handle = text;
 		next = text.end;
 		break;
@@ -328,7 +343,7 @@ function parsePrefix(buf, pos, end) {
 const hex2 = (b) => b.toString(16).padStart(2, '0').toUpperCase();
 
 // Value checks shared by bare records and post parts
-function checkValue(node) {
+function checkValue(node, opts) {
 	const b = node.body, n = b.length, at = node.offset;
 	const bad = (what) => { throw new MalformedError(what, at); };
 	switch (node.type) {
@@ -394,7 +409,7 @@ function checkValue(node) {
 		break;
 	default:
 		if (isText(node.type))
-			checkTextRecord(node);
+			checkTextRecord(node, opts);
 	}
 }
 
@@ -433,7 +448,7 @@ function parsePost(buf, node, ctx) {
 		if (pos >= end || !isText(buf[pos]))
 			throw new MalformedError('Topic without subject', node.offset);
 		node.subject = readRecord(buf, pos, end);
-		checkTextRecord(node.subject);
+		checkTextRecord(node.subject, ctx.opts);
 		pos = node.subject.end;
 	} else {
 		if (end - pos < 32)
@@ -468,7 +483,7 @@ function parsePost(buf, node, ctx) {
 			part.unknown = true;
 			continue;
 		}
-		checkValue(part);
+		checkValue(part, ctx.opts);
 		if (isText(type)) {
 			if (node.text)
 				throw new MalformedError('more than one text part', part.offset);
@@ -641,7 +656,7 @@ function parseRecord(buf, node, ctx) {
 		return;
 	}
 	// a bare record: logged, only a signed Avatar has an effect
-	checkValue(node);
+	checkValue(node, ctx.opts);
 	node.bare = true;
 	if (type === T.AVATAR)
 		node.signer = ctx.signer;
@@ -664,7 +679,7 @@ function parseRecords(buf, pos, end, ctx) {
 		if (isPrefix(type)) {
 			if (ctx.scope === 'keyed')
 				throw new MalformedError('prefix inside Keyed', pos);
-			const p = parsePrefix(buf, pos, end);
+			const p = parsePrefix(buf, pos, end, ctx.opts);
 			const last = pending.length ? pending[pending.length - 1].type : chainMax;
 			if (type <= last)
 				throw new MalformedError('prefix order violated', pos);
@@ -701,10 +716,12 @@ function parseRecords(buf, pos, end, ctx) {
 //     fails it drops the frame, without it Fragments are verified = null
 //   reassembled: true for a payload decoded from Fragments, which must not
 //     hold Fragments itself
+//   scsu: the decoder of scsu.js; with it, invalid SCSU drops the frame and
+//     Text-SCSU records get their string, without it they stay undecoded
 //   maxDepth: limit on nesting of Signed, Keyed and Bundle (default 16)
 export function parse(payload, opts = {}) {
 	bytesOf(payload, undefined, 'payload');
-	const o = { verify: null, verifyBlock: null, reassembled: false, maxDepth: 16, ...opts };
+	const o = { verify: null, verifyBlock: null, reassembled: false, scsu: null, maxDepth: 16, ...opts };
 	return parseRecords(payload, 0, payload.length, {
 		scope: 'plain', signer: null, chain: [], depth: 0, direct: null, top: true, opts: o,
 	}).nodes;
