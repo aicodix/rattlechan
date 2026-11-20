@@ -24,7 +24,7 @@ const names = async (archive) => readTar(await gunzip(archive)).map((f) => f.nam
 // a station with a bit of everything
 const backend = memoryBackend();
 const S = await openStore(backend);
-const f1 = await S.addFrame(Uint8Array.of(0x40, 2, 0x48, 0x69), { callSign: 'DL1ABC', mode: 65 });
+const f1 = await S.addFrame(Uint8Array.of(0x40, 2, 0x48, 0x69), { tier: 'precious', callSign: 'DL1ABC', mode: 65 });
 const f2 = await S.addFrame(new Uint8Array(3000).fill(7));
 const rev = new Uint8Array(99);
 rev[0] = 0x20;
@@ -33,7 +33,7 @@ rev.fill(9, 2, 34);
 rev[98] = 0x28;
 const r1 = await S.addRevocation(rev, 1000);
 await S.putData('trust', { trusted: ['09'.repeat(32)] });
-await S.putData('settings', { budget: 5000 });
+await S.setSettings({ budgets: { logged: 5000 } });
 await S.putSecret('keys', { me: 'ab'.repeat(32) });
 
 // ------------------------------------------------------------ export
@@ -43,7 +43,7 @@ const secrets = await exportArchive(backend, { secrets: true });
 check('gzip magic', hex(data.subarray(0, 2)), '1f8b');
 check('data archive', await names(data), [
 	'rattlechan/data/settings.json', 'rattlechan/data/trust.json',
-	`rattlechan/frames/${f1}`, `rattlechan/frames/${f2}`, `rattlechan/revocations/${r1}`].sort().join());
+	`rattlechan/precious/${f1}`, `rattlechan/logged/${f2}`, `rattlechan/revocations/${r1}`].sort().join());
 check('secrets archive', await names(secrets), 'rattlechan/secrets/keys.json');
 check('no secrets in the data', (await names(data)).includes('secrets'), false);
 
@@ -57,8 +57,9 @@ check('no secrets in the data', (await names(data)).includes('secrets'), false);
 	check('frames restored', (await T.frames()).map((f) => f.name).join(), [f1, f2].join());
 	check('frame bytes restored', hex(await T.readFrame(f1)), '40024869');
 	check('preamble data restored', (await T.frames())[0].callSign, 'DL1ABC');
+	check('tiers restored', (await T.frames()).map((f) => f.tier).join(), 'precious,logged');
 	check('revocation restored', hex(await T.readRevocation(r1)), hex(rev));
-	check('settings restored', (await T.settings()).budget, 5000);
+	check('settings restored', (await T.settings()).budgets.logged, 5000);
 	check('no keys without the secrets archive', await T.getSecret('keys'), null);
 	r = await importArchive(fresh, secrets);
 	check('secrets imported', (await T.getSecret('keys')).me, 'ab'.repeat(32));

@@ -1,16 +1,23 @@
-// Station storage: frames as received, one file each, bounded by bytes;
-// revocations forever; JSON data and secrets. Files live in a backend: the
-// Origin Private File System in browsers, or memory for tests and Node.js.
+// Station storage: frames as received, one file each, in two tiers bounded
+// by bytes; revocations forever; JSON data and secrets. Files live in a
+// backend: the Origin Private File System in browsers, or memory for tests
+// and Node.js.
 //
 // Layout, all names checked by safeName():
-//   frames/<kept>_<arrival>_<call sign>_<mode>.bin   the frame's bytes
-//   revocations/<key hex>_<reason>_<arrival>.bin      a Signed(key, Revoke)
-//   data/<name>.json                                  settings, trust lists
-//   secrets/<name>.json                               private keys, Keyed secrets
-// Times are milliseconds since 1970, 13 digits. Eviction removes the frame
-// with the oldest kept time; touch() renews it, the arrival time stays.
+//   precious/<kept>_<arrival>_<call sign>_<mode>.bin   frames worth keeping
+//   logged/<kept>_<arrival>_<call sign>_<mode>.bin     everything else
+//   revocations/<key hex>_<reason>_<arrival>.bin        a Signed(key, Revoke)
+//   data/<name>.json                                    settings, trust lists
+//   secrets/<name>.json                                 private keys, Keyed secrets
+// Times are milliseconds since 1970, 13 digits. Each tier evicts the frame
+// with the oldest kept time first; touch() renews it, the arrival time
+// stays. The caller decides the tier (SPEC.md, Client policy): precious for
+// frames with a post signed by a trusted key, the station's own frames and
+// verified Keyed posts, logged for the rest; it moves frames with promote()
+// and demote() when trust changes or fragments turn out precious.
 
-export const DIRS = Object.freeze(['frames', 'revocations', 'data', 'secrets']);
+export const TIERS = Object.freeze(['precious', 'logged']);
+export const DIRS = Object.freeze([...TIERS, 'revocations', 'data', 'secrets']);
 export const BUDGET_DEFAULT = 100 * 1024 * 1024;
 
 // at most 100 characters, what a tar header holds for a name
@@ -151,79 +158,117 @@ export async function openStore(backend, { now = () => Date.now() } = {}) {
 	const putJSON = (dir, name, value) =>
 		backend.write(`${dir}/${name}.json`, new TextEncoder().encode(JSON.stringify(value, null, '\t') + '\n'));
 
-	const settings = async () => ({ budget: BUDGET_DEFAULT, ...(await getJSON('data', 'settings')) });
+	const settings = async () => {
+		const stored = await getJSON('data', 'settings') ?? {};
+		return { ...stored, budgets: { precious: BUDGET_DEFAULT, logged: BUDGET_DEFAULT, ...stored.budgets } };
+	};
 
-	// name -> frame, read from the backend once; this store is its only writer
+	const checkTier = (tier) => {
+		if (!TIERS.includes(tier))
+			throw new RangeError(`tier must be ${TIERS.join(' or ')}`);
+		return tier;
+	};
+
+	// name -> frame with its tier, read from the backend once; this store
+	// is its only writer
 	let index = null;
 	const loadIndex = async () => {
 		if (!index) {
 			index = new Map();
-			for (const { name, size } of await backend.list('frames')) {
-				const f = parseFrameName(name);
-				if (f)
-					index.set(name, { ...f, size });
-			}
+			for (const tier of TIERS)
+				for (const { name, size } of await backend.list(tier)) {
+					const f = parseFrameName(name);
+					if (f)
+						index.set(name, { ...f, size, tier });
+				}
 		}
 		return index;
 	};
 
-	// all frames, oldest arrival first
-	const frames = async () => [...(await loadIndex()).values()]
+	// the frames of a tier or of both, oldest arrival first
+	const frames = async (tier) => [...(await loadIndex()).values()]
+		.filter((f) => !tier || f.tier === tier)
 		.sort((a, b) => a.arrival - b.arrival || a.kept - b.kept);
 
-	const usage = async () => [...(await loadIndex()).values()].reduce((n, f) => n + f.size, 0);
+	const usage = async (tier) => (await frames(tier)).reduce((n, f) => n + f.size, 0);
 
-	const write = async (name, bytes) => {
-		await backend.write(`frames/${name}`, bytes);
-		(await loadIndex()).set(name, { ...parseFrameName(name), size: bytes.length });
+	const write = async (tier, name, bytes) => {
+		await backend.write(`${tier}/${name}`, bytes);
+		(await loadIndex()).set(name, { ...parseFrameName(name), size: bytes.length, tier });
 	};
 
 	const removeFrame = async (name) => {
-		await backend.remove(`frames/${name}`);
-		(await loadIndex()).delete(name);
+		const f = (await loadIndex()).get(name);
+		if (!f)
+			return;
+		await backend.remove(`${f.tier}/${name}`);
+		index.delete(name);
 	};
 
-	// remove the frames kept longest ago until they fit the budget
+	// remove the frames kept longest ago until each tier fits its budget
 	const evict = async () => {
-		const { budget } = await settings();
-		const all = [...(await loadIndex()).values()].sort((a, b) => a.kept - b.kept);
-		let total = all.reduce((n, f) => n + f.size, 0);
+		const { budgets } = await settings();
 		const gone = [];
-		for (const f of all) {
-			if (total <= budget)
-				break;
-			await removeFrame(f.name);
-			total -= f.size;
-			gone.push(f.name);
+		for (const tier of TIERS) {
+			const all = (await frames(tier)).sort((a, b) => a.kept - b.kept);
+			let total = all.reduce((n, f) => n + f.size, 0);
+			for (const f of all) {
+				if (total <= budgets[tier])
+					break;
+				await removeFrame(f.name);
+				total -= f.size;
+				gone.push(f.name);
+			}
 		}
 		return gone;
 	};
 
-	// Store a frame exactly as received, with what the preamble said.
-	// Returns its name; older frames may be evicted to make room.
-	const addFrame = async (bytes, { arrival, callSign = null, mode = null } = {}) => {
+	// Store a frame exactly as received, with what the preamble said, in a
+	// tier. Returns its name, or null if the tier keeps nothing; older frames
+	// of the tier may be evicted to make room.
+	const addFrame = async (bytes, { tier = 'logged', arrival, callSign = null, mode = null } = {}) => {
 		if (!(bytes instanceof Uint8Array) || !bytes.length)
 			throw new RangeError('a frame must be a non-empty Uint8Array');
+		checkTier(tier);
 		const t = tick();
 		const name = frameName(t, arrival ?? t, callSign, mode);
-		await write(name, bytes);
+		await write(tier, name, bytes);
 		await evict();
-		return name;
+		return (await loadIndex()).has(name) ? name : null;
 	};
 
-	const readFrame = (name) => backend.read(`frames/${name}`);
+	const readFrame = async (name) => {
+		const f = (await loadIndex()).get(name);
+		return f ? backend.read(`${f.tier}/${name}`) : null;
+	};
 
 	// Keep a frame as if it had just arrived, for avatars of active keys.
 	// Returns its new name.
 	const touch = async (name) => {
-		const f = parseFrameName(name);
+		const f = (await loadIndex()).get(name);
 		const bytes = f && await readFrame(name);
 		if (!bytes)
 			return null;
 		const fresh = frameName(tick(), f.arrival, f.callSign, f.mode);
-		await write(fresh, bytes);
+		await write(f.tier, fresh, bytes);
 		await removeFrame(name);
 		return fresh;
+	};
+
+	// Move a frame to another tier, keeping its name. Returns whether it
+	// is there now; the target tier may evict others, or the frame itself.
+	const move = async (name, tier) => {
+		checkTier(tier);
+		const f = (await loadIndex()).get(name);
+		if (!f)
+			return false;
+		if (f.tier !== tier) {
+			const bytes = await readFrame(name);
+			await removeFrame(name);
+			await write(tier, name, bytes);
+			await evict();
+		}
+		return (await loadIndex()).get(name)?.tier === tier;
 	};
 
 	// after an import wrote files behind the store's back
@@ -232,8 +277,10 @@ export async function openStore(backend, { now = () => Date.now() } = {}) {
 		return evict();
 	};
 
-	// Keep a revocation forever, outside the budget: a Signed(key, Revoke)
-	// of 99 bytes. Only its earliest arrival per key and reason is kept.
+	// Keep a revocation forever, outside the budgets: a Signed(key, Revoke)
+	// of 99 bytes, only for a key the user trusts and only once its
+	// signature verified, both up to the caller, since anyone can make keys
+	// and revoke them. Only its earliest arrival per key and reason is kept.
 	const addRevocation = async (bytes, arrival = now()) => {
 		if (!(bytes instanceof Uint8Array) || bytes.length !== 99 || bytes[0] !== 0x20 || bytes[1] !== 97 || (bytes[98] !== 0x28 && bytes[98] !== 0x29))
 			throw new RangeError('a revocation is a Signed record of 99 bytes holding one Revoke');
@@ -257,10 +304,14 @@ export async function openStore(backend, { now = () => Date.now() } = {}) {
 	return {
 		backend,
 		addFrame, readFrame, frames, touch, removeFrame, usage, evict, reload,
+		promote: (name) => move(name, 'precious'),
+		demote: (name) => move(name, 'logged'),
 		addRevocation, revocations, readRevocation,
 		settings,
+		// changes are merged, budgets too: { budgets: { logged: 0 } } keeps the other
 		setSettings: async (changes) => {
-			await putJSON('data', 'settings', { ...(await settings()), ...changes });
+			const old = await settings();
+			await putJSON('data', 'settings', { ...old, ...changes, budgets: { ...old.budgets, ...changes.budgets } });
 			return evict();
 		},
 		getData: (name) => getJSON('data', name),

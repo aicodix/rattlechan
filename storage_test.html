@@ -46,18 +46,20 @@ try {
 	const backend = await fresh('rattlechan-test-a');
 	let clock = 1763380000000;
 	const S = await openStore(backend, { now: () => clock });
-	await S.setSettings({ budget: 3000 });
+	await S.setSettings({ budgets: { precious: 3000, logged: 1000 } });
 	const names = [];
 	for (let i = 0; i < 20; ++i) {
 		clock += 1000;
-		names.push(await S.addFrame(new Uint8Array(500).fill(i), { callSign: i % 2 ? 'DL1ABC' : 'W1AW/P', mode: 65 }));
+		names.push(await S.addFrame(new Uint8Array(500).fill(i), { tier: 'precious', callSign: i % 2 ? 'DL1ABC' : 'W1AW/P', mode: 65 }));
+		await S.addFrame(new Uint8Array(400).fill(0x50 + i)); // spam in the logged tier
 	}
-	check('budget keeps six frames', (await S.frames()).length, 6);
-	check('the newest stay', (await S.frames()).map((f) => f.name).join(), names.slice(14).join());
+	check('budget keeps six precious frames', (await S.frames('precious')).length, 6);
+	check('the newest stay', (await S.frames('precious')).map((f) => f.name).join(), names.slice(14).join());
+	check('spam stays in the logged tier', (await S.frames('logged')).length, 2);
 	check('bytes as written', hex(await S.readFrame(names[19])), hex(new Uint8Array(500).fill(19)));
 	const touched = await S.touch(names[14]);
 	clock += 1000;
-	await S.addFrame(new Uint8Array(500).fill(99));
+	await S.addFrame(new Uint8Array(500).fill(99), { tier: 'precious' });
 	check('touched frame survives', (await S.frames()).some((f) => f.name === touched), true);
 	const rev = new Uint8Array(99);
 	rev[0] = 0x20;
@@ -70,7 +72,8 @@ try {
 
 	// a second store on the same files sees all of it
 	const again = await openStore(await opfsBackend('rattlechan-test-a'));
-	check('frames persist', (await again.frames()).length, 6);
+	check('frames persist', (await again.frames()).length, 8);
+	check('tiers persist', (await again.frames('logged')).length, 2);
 	check('revocation persists', (await again.revocations())[0].reason, 'compromised');
 
 	// export, import into another directory
@@ -80,10 +83,10 @@ try {
 	const r = await importArchive(other, data);
 	await importArchive(other, secrets);
 	const T = await openStore(other);
-	check('import adds frames, revocation and data', r.added.length, 9);
+	check('import adds frames, revocation and data', r.added.length, 11);
 	check('frames after import', (await T.frames()).map((f) => f.name).join(), (await S.frames()).map((f) => f.name).join());
 	check('secret after import', (await T.getSecret('keys')).test, 'not a real key');
-	check('second import keeps all', (await importArchive(other, data)).kept.length, 9);
+	check('second import keeps all', (await importArchive(other, data)).kept.length, 11);
 
 	const link = document.getElementById('download');
 	link.href = URL.createObjectURL(new Blob([data], { type: 'application/gzip' }));
@@ -109,7 +112,7 @@ document.getElementById('file').addEventListener('change', async (ev) => {
 		const r = await importArchive(backend, new Uint8Array(await ev.target.files[0].arrayBuffer()));
 		const T = await openStore(backend);
 		shown.textContent = `added ${r.added.length}, skipped ${r.skipped.length}\n` +
-			(await T.frames()).map((f) => `${new Date(f.arrival).toISOString()} ${f.callSign ?? '-'} mode ${f.mode ?? '-'} ${f.size} bytes`).join('\n');
+			(await T.frames()).map((f) => `${new Date(f.arrival).toISOString()} ${f.tier.padEnd(8)} ${f.callSign ?? '-'} mode ${f.mode ?? '-'} ${f.size} bytes`).join('\n');
 	} catch (e) {
 		shown.textContent = `import failed: ${e.message}`;
 	}

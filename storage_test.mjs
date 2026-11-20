@@ -41,7 +41,7 @@ const now = () => clock;
 
 {
 	const S = await openStore(memoryBackend(), { now });
-	check('default budget', (await S.settings()).budget, BUDGET_DEFAULT);
+	check('default budgets', JSON.stringify((await S.settings()).budgets), JSON.stringify({ precious: BUDGET_DEFAULT, logged: BUDGET_DEFAULT }));
 	check('100 MiB', BUDGET_DEFAULT, 104857600);
 	const a = await S.addFrame(frame(100, 1), { callSign: 'DL1ABC', mode: 65 });
 	check('frame name', a, '1763380000000_1763380000000_DL1ABC_65.bin');
@@ -68,7 +68,7 @@ const now = () => clock;
 
 {
 	const S = await openStore(memoryBackend(), { now });
-	await S.setSettings({ budget: 1000 });
+	await S.setSettings({ budgets: { logged: 1000 } });
 	const names = [];
 	for (let i = 0; i < 10; ++i) {
 		clock += 1000;
@@ -92,15 +92,59 @@ const now = () => clock;
 	check('touch keeps the arrival', parseFrameName(avatar).arrival, arrival);
 	check('touch keeps the bytes', hex(await S.readFrame(avatar)), hex(frame(300, 0xAA)));
 	check('touch of a missing frame', await S.touch('0000000000000_0000000000000_NONE_NONE.bin'), null);
-	check('frame bigger than the budget', (await S.setSettings({ budget: 100 })).length, 3);
+	check('frame bigger than the budget', (await S.setSettings({ budgets: { logged: 100 } })).length, 3);
 	check('nothing left', await S.usage(), 0);
+}
+
+// ------------------------------------------------------------- tiers
+
+{
+	const S = await openStore(memoryBackend(), { now });
+	await S.setSettings({ budgets: { precious: 1000, logged: 600 } });
+	check('budgets merge', JSON.stringify((await S.settings()).budgets), '{"precious":1000,"logged":600}');
+	const good = [];
+	for (let i = 0; i < 3; ++i) {
+		clock += 1000;
+		good.push(await S.addFrame(frame(300, i), { tier: 'precious', callSign: 'DL1ABC' }));
+	}
+	// a spammer sends changing frames, far more than any budget
+	for (let i = 0; i < 100; ++i) {
+		clock += 1000;
+		await S.addFrame(frame(300, 0x50 + (i & 15)));
+	}
+	check('spam only evicts logged frames', (await S.frames('precious')).map((f) => f.name).join(), good.join());
+	check('the logged tier keeps two', (await S.frames('logged')).length, 2);
+	check('usage per tier', `${await S.usage('precious')} ${await S.usage('logged')} ${await S.usage()}`, '900 600 1500');
+	check('frames carry their tier', (await S.frames())[0].tier, 'precious');
+
+	// fragments wait in the logged tier and move up once they turn out precious
+	clock += 1000;
+	await S.setSettings({ budgets: { logged: 900 } });
+	const frag = await S.addFrame(frame(200, 0xF0));
+	check('promote', await S.promote(frag), true);
+	check('promoted frame read back', hex(await S.readFrame(frag)), hex(frame(200, 0xF0)));
+	check('precious evicted its oldest for it', (await S.frames('precious')).map((f) => f.name).join(), [...good.slice(1), frag].join());
+	check('demote', await S.demote(good[2]), true);
+	await S.setSettings({ budgets: { logged: 600 } });
+	check('a demoted frame is kept longest ago, so the logged tier evicts it first', (await S.frames('logged')).some((f) => f.name === good[2]), false);
+	check('promote a missing frame', await S.promote('0000000000000_0000000000000_NONE_NONE.bin'), false);
+	const t = await S.touch(frag);
+	check('touched frame stays precious', (await S.frames('precious')).some((f) => f.name === t), true);
+
+	// a budget of 0 keeps nothing of a tier
+	await S.setSettings({ budgets: { logged: 0 } });
+	check('nothing logged', (await S.frames('logged')).length, 0);
+	clock += 1000;
+	check('a logged frame is not kept', await S.addFrame(frame(10, 1)), null);
+	check('precious budget kept', (await S.settings()).budgets.precious, 1000);
+	await rejects('unknown tier', () => S.addFrame(frame(1, 1), { tier: 'gold' }));
 }
 
 // ------------------------------------------------------- revocations
 
 {
 	const S = await openStore(memoryBackend(), { now });
-	await S.setSettings({ budget: 10 });
+	await S.setSettings({ budgets: { precious: 10, logged: 10 } });
 	const r1 = await S.addRevocation(revocation(1, 'retired'), 1000);
 	check('revocation name', r1, '01'.repeat(32) + '_retired_0000000001000.bin');
 	check('earliest arrival kept', await S.addRevocation(revocation(1, 'retired'), 500), r1);
@@ -129,7 +173,7 @@ const now = () => clock;
 
 	// files written behind the store's back appear after reload()
 	check('no frames yet', (await S.frames()).length, 0);
-	await backend.write('frames/0000000000005_0000000000005_NONE_NONE.bin', frame(5, 5));
+	await backend.write('logged/0000000000005_0000000000005_NONE_NONE.bin', frame(5, 5));
 	check('not seen before reload', (await S.frames()).length, 0);
 	await S.reload();
 	check('seen after reload', (await S.frames()).length, 1);
