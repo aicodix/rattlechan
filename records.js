@@ -4,6 +4,7 @@
 // signatures or a sign callback.
 
 import { blake2s } from './blake2s.js';
+import { decode as scsuDecode } from './scsu.js';
 
 // "Rattlechan-v0" followed by a zero byte
 export const CONTEXT = Uint8Array.from('Rattlechan-v0\0', (c) => c.charCodeAt(0));
@@ -46,7 +47,7 @@ export const T = Object.freeze({
 
 const NAMES = Object.fromEntries(Object.entries(T).map(([k, v]) => [v, k]));
 
-// SCSU decodes at most 2^20 bytes
+// Text-SCSU holds at most 2^20 bytes (SPEC.md)
 export const SCSU_MAX = 1 << 20;
 
 // HYDRA blocks are at most 8192 bytes
@@ -205,13 +206,12 @@ export function verifyKeyed(node, secret) {
 // A U+FEFF is text here, not a byte order mark, so it stays: ignoreBOM for
 // UTF-8 and UTF-16, the only encodings with one (and only there, since
 // Node.js 22 then drops a leading 0xFF in windows-1252)
-// here (0x44..0x4F are reserved). SCSU needs the decoder of scsu.js, here or
-// already in parse().
-export function decodeText(node, scsu = null) {
+// here (0x44..0x4F are reserved).
+export function decodeText(node) {
 	try {
 		switch (node.type) {
 		case T.TEXT_SCSU:
-			return node.string ?? (scsu ? scsu.decode(node.body) : null);
+			return node.string ?? scsuDecode(node.body);
 		case T.TEXT_UTF8:
 			return new TextDecoder('utf-8', { ignoreBOM: true }).decode(node.body);
 		case T.TEXT_GB18030:
@@ -285,11 +285,9 @@ function checkTextRecord(node, opts) {
 	if (node.type === T.TEXT_SCSU) {
 		if (node.body.length > SCSU_MAX)
 			throw new MalformedError('Text-SCSU longer than SCSU decodes', node.offset);
-		if (opts.scsu) {
-			node.string = opts.scsu.decode(node.body);
-			if (node.string === null)
-				throw new MalformedError('invalid SCSU', node.offset);
-		}
+		node.string = scsuDecode(node.body);
+		if (node.string === null)
+			throw new MalformedError('invalid SCSU', node.offset);
 	}
 	if (node.type === T.TEXT_UTF8) {
 		try {
@@ -719,12 +717,10 @@ function parseRecords(buf, pos, end, ctx) {
 //     fails it drops the frame, without it Fragments are verified = null
 //   reassembled: true for a payload decoded from Fragments, which must not
 //     hold Fragments itself
-//   scsu: the decoder of scsu.js; with it, invalid SCSU drops the frame and
-//     Text-SCSU records get their string, without it they stay undecoded
 //   maxDepth: limit on nesting of Signed, Keyed and Bundle (default 16)
 export function parse(payload, opts = {}) {
 	bytesOf(payload, undefined, 'payload');
-	const o = { verify: null, verifyBlock: null, reassembled: false, scsu: null, maxDepth: 16, ...opts };
+	const o = { verify: null, verifyBlock: null, reassembled: false, maxDepth: 16, ...opts };
 	return parseRecords(payload, 0, payload.length, {
 		scope: 'plain', signer: null, chain: [], depth: 0, direct: null, top: true, opts: o,
 	}).nodes;

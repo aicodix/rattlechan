@@ -5,7 +5,8 @@
 // U+FEFF is text here, not a byte order mark: UTF-16LE, the one table
 // encoding with a byte order mark, decodes with ignoreBOM.
 
-import { TEXT_TABLE, textUTF8, textGB18030, textTable, textSCSU } from './records.js';
+import { TEXT_TABLE, SCSU_MAX, textUTF8, textGB18030, textTable, textSCSU } from './records.js';
+import { encode as scsuEncode } from './scsu.js';
 
 const encoders = new Map();
 
@@ -157,14 +158,11 @@ export function encode(str, label) {
 
 // Every text record that carries str, smallest first. Ties keep the order
 // UTF-8, SCSU, GB 18030, then the table in index order, so UTF-8 wins a tie.
-// scsu: the module of scsu.js, without it SCSU is left out.
-export function textRecords(str, { scsu = null } = {}) {
+export function textRecords(str) {
 	const found = [textUTF8(str)];
-	if (scsu) {
-		try {
-			found.push(textSCSU(scsu.encode(str)));
-		} catch {}
-	}
+	const packed = scsuEncode(str);
+	if (packed && packed.length <= SCSU_MAX)
+		found.push(textSCSU(packed));
 	const gb = encode(str, 'gb18030');
 	if (gb)
 		found.push(textGB18030(gb));
@@ -178,7 +176,7 @@ export function textRecords(str, { scsu = null } = {}) {
 }
 
 // The smallest text record for str, as SPEC.md asks senders to pick
-export function smallestText(str, options) {
-	return textRecords(str, options)[0];
+export function smallestText(str) {
+	return textRecords(str)[0];
 }
 

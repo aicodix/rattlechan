@@ -1,8 +1,8 @@
-// Tests for scsu.js. Run with: node scsu_test.mjs
+// Tests for scsu.js, the JavaScript SCSU module copied from
+// https://github.com/xdsopl/scsu, as Rattlechan uses it.
+// Run with: node scsu_test.mjs
 
-import { readFile } from 'node:fs/promises';
-import { loadScsu } from './scsu.js';
-import { smallestText } from './encodings.js';
+import * as S from './scsu.js';
 import * as R from './records.js';
 
 const { T } = R;
@@ -16,16 +16,6 @@ function check(name, got, want) {
 	}
 }
 
-function throws(name, fn) {
-	++checks;
-	try {
-		fn();
-		++failed;
-		console.log('FAIL', name, 'did not throw');
-	} catch {}
-}
-
-const S = await loadScsu(await readFile(new URL('./scsu.wasm', import.meta.url)));
 const utf8Length = (s) => new TextEncoder().encode(s).length;
 
 // --------------------------------------------------------- round trips
@@ -56,40 +46,34 @@ for (const script of ['Russian', 'Greek', 'Arabic', 'Hebrew', 'Hindi', 'Tamil', 
 	check(`${script} is smaller in SCSU`, S.encode(samples[script]).length < utf8Length(samples[script]), true);
 check('ASCII stays ASCII', String.fromCharCode(...S.encode('Hello, World!')), 'Hello, World!');
 check('empty text', S.decode(S.encode('')), '');
-check('lone surrogate becomes U+FFFD', S.decode(S.encode('a\uD800b')), 'a�b');
-for (const s of ['\uFEFF', '\uFEFFHi', 'Hi\uFEFF'])
+for (const s of ['﻿', '﻿Hi', 'Hi﻿', '73 ﻿Привет'])
 	check(`U+FEFF stays in ${JSON.stringify(s)}`, S.decode(S.encode(s)), s);
 
 // ---------------------------------------------------- invalid input
 
+check('lone surrogate is not encoded', S.encode('a\uD800b'), null);
 check('reserved tag 0x0C', S.decode(Uint8Array.of(0x0C)), null);
 check('truncated quote', S.decode(Uint8Array.of(0x0E, 0x04)), null);
-check('not a Uint8Array', S.decode([0x41]), null);
-check('too long to decode', S.decode(new Uint8Array(R.SCSU_MAX + 1)), null);
-throws('too long to encode', () => S.encode('a'.repeat(R.SCSU_MAX + 1)));
 const longest = 'ж'.repeat(R.SCSU_MAX / 2);
-check('longest text round trip', S.decode(S.encode(longest)), longest);
+check('longest Text-SCSU round trip', S.decode(S.encode(longest)), longest);
 
 // -------------------------------------------------- with records.js
 
 {
-	const ru = R.textSCSU(S.encode(samples.Russian));
-	check('Hindi is smallest in SCSU', smallestText(samples.Hindi, { scsu: S })[0], T.TEXT_SCSU);
-	const frame = R.payload([R.fromName(R.textSCSU(S.encode('Сергей'))), R.topic(1763380000, ru, R.textSCSU(S.encode(samples.Hindi)))]);
-	const p = R.parse(frame, { scsu: S });
+	const frame = R.payload([R.fromName(R.textSCSU(S.encode('Сергей'))),
+		R.topic(1763380000, R.textSCSU(S.encode(samples.Russian)), R.textSCSU(S.encode(samples.Hindi)))]);
+	const p = R.parse(frame);
 	check('SCSU name handle', R.decodeText(p[0].prefixes[0].handle), 'Сергей');
 	check('SCSU subject', R.decodeText(p[0].subject), samples.Russian);
 	check('SCSU text part', R.decodeText(p[0].text), samples.Hindi);
-	check('decoded later instead', R.decodeText(R.parse(frame)[0].text, S), samples.Hindi);
-	const bad = R.payload([R.textSCSU(Uint8Array.of(0x41, 0x0C))]);
 	let dropped = false;
 	try {
-		R.parse(bad, { scsu: S });
+		R.parse(R.payload([R.textSCSU(Uint8Array.of(0x41, 0x0C))]));
 	} catch (e) {
 		dropped = e instanceof R.MalformedError;
 	}
 	check('invalid SCSU drops the frame', dropped, true);
-	check('without the decoder it is only undecoded', R.decodeText(R.parse(bad)[0]), null);
+	check('a built record is Text-SCSU', R.textSCSU(S.encode('ж'))[0], T.TEXT_SCSU);
 }
 
 console.log(failed ? `${failed} of ${checks} checks failed` : `all ${checks} checks passed`);

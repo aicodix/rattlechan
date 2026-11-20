@@ -2,9 +2,7 @@
 // Every character each decoder produces from one or two bytes has to
 // encode back, and the smallest record has to decode to the same text.
 
-import { readFile } from 'node:fs/promises';
 import { encode, textRecords, smallestText } from './encodings.js';
-import { loadScsu } from './scsu.js';
 import * as R from './records.js';
 
 const { T } = R;
@@ -27,7 +25,6 @@ const supported = (label) => {
 	}
 };
 const hex = (a) => a && Array.from(a, (b) => b.toString(16).padStart(2, '0')).join('');
-const S = await loadScsu(await readFile(new URL('./scsu.wasm', import.meta.url)));
 
 // ------------------------------------- everything the decoders produce
 
@@ -123,24 +120,23 @@ const samples = {
 };
 const utf8Length = (s) => new TextEncoder().encode(s).length;
 for (const [script, text] of Object.entries(samples)) {
-	const all = textRecords(text, { scsu: S });
-	const best = smallestText(text, { scsu: S });
+	const all = textRecords(text);
+	const best = smallestText(text);
 	check(`${script}: smallest first`, all.every((r) => r.length >= best.length), true);
 	check(`${script}: never larger than UTF-8`, best.length <= 2 + utf8Length(text), true);
 	for (const r of all) {
-		const node = R.parse(r, { scsu: S })[0];
+		const node = R.parse(r)[0];
 		const name = node.type === T.TEXT_TABLE ? R.TEXT_TABLE[node.table] : node.name;
 		check(`${script}: ${name} decodes back`, R.decodeText(node), text);
 	}
 }
-check('English stays UTF-8', smallestText(samples.English, { scsu: S })[0], T.TEXT_UTF8);
-check('ties go to UTF-8', smallestText('ab', { scsu: S })[0], T.TEXT_UTF8);
-check('emoji are smaller in SCSU', smallestText(samples.Emoji, { scsu: S })[0], T.TEXT_SCSU);
-check('Russian is smaller than UTF-8', smallestText(samples.Russian, { scsu: S }).length < utf8Length(samples.Russian), true);
-check('Chinese is smaller than UTF-8', smallestText(samples.Chinese, { scsu: S }).length < utf8Length(samples.Chinese), true);
-check('without SCSU, Hindi is smaller in UTF-16LE', R.TEXT_TABLE[smallestText(samples.Hindi)[2]], 'UTF-16LE');
-check('with SCSU, Hindi is SCSU', smallestText(samples.Hindi, { scsu: S })[0], T.TEXT_SCSU);
-check('Russian without SCSU uses the table', smallestText(samples.Russian)[0], T.TEXT_TABLE);
+check('English stays UTF-8', smallestText(samples.English)[0], T.TEXT_UTF8);
+check('ties go to UTF-8', smallestText('ab')[0], T.TEXT_UTF8);
+check('emoji are smaller in SCSU', smallestText(samples.Emoji)[0], T.TEXT_SCSU);
+check('Russian is smaller than UTF-8', smallestText(samples.Russian).length < utf8Length(samples.Russian), true);
+check('Chinese is smaller than UTF-8', smallestText(samples.Chinese).length < utf8Length(samples.Chinese), true);
+check('Hindi is smallest in SCSU', smallestText(samples.Hindi)[0], T.TEXT_SCSU);
+check('Hindi is smaller in UTF-16LE than in UTF-8', R.TEXT_TABLE[textRecords(samples.Hindi).find((r) => r[0] === T.TEXT_TABLE)[2]], 'UTF-16LE');
 
 console.log(failed ? `${failed} of ${checks} checks failed` : `all ${checks} checks passed`);
 if (failed)

@@ -485,29 +485,24 @@ check('Request-Root is 19 or 35 bytes', R.requestRoot(1, fill(16, 0)).length + '
 	check('windows-1252', R.decodeText(t[1]), 'Grüße');
 	check('Text-Table index', t[1].table, 19);
 	check('unknown table index', R.decodeText(t[2]), null);
-	check('SCSU needs its module', R.decodeText(t[3]), null);
+	check('SCSU', R.decodeText(t[3]), 'A');
 	check('GB 18030', R.decodeText(t[4]), '你好');
 	check('table has 32 entries', R.TEXT_TABLE.length, 32);
 	const subject = parses('Text-Table subject', R.payload([R.topic(1, R.textTable(13, [0xF0]), R.textUTF8('x'))]));
 	check('KOI8-R subject', R.decodeText(subject[0].subject), 'П');
-	// stand-in for scsu.js: 0x0C is a reserved tag, anything else is ASCII
-	const fakeScsu = { decode: (b) => b.includes(0x0C) ? null : String.fromCharCode(...b) };
+	// SCSU is always decoded: 0x0C is a reserved tag
 	const scsuText = R.textSCSU([0x48, 0x69]);
-	let s = R.parse(R.payload([scsuText]));
-	check('SCSU without a decoder', R.decodeText(s[0]), null);
-	check('SCSU decoded later', R.decodeText(s[0], fakeScsu), 'Hi');
-	s = R.parse(R.payload([scsuText]), { scsu: fakeScsu });
+	const s = R.parse(R.payload([scsuText]));
 	check('SCSU decoded by parse', R.decodeText(s[0]), 'Hi');
 	const badScsu = R.textSCSU([0x48, 0x0C]);
-	parses('invalid SCSU without a decoder', R.payload([badScsu]));
-	malformed('invalid SCSU in a bare text', R.payload([badScsu]), { scsu: fakeScsu });
-	malformed('invalid SCSU in a subject', R.payload([R.topic(1, badScsu, R.textUTF8('x'))]), { scsu: fakeScsu });
-	malformed('invalid SCSU in a text part', R.payload([R.reply(1, fill(32, 7), badScsu)]), { scsu: fakeScsu });
-	malformed('invalid SCSU in a handle', R.payload([R.fromName(badScsu), R.textUTF8('x')]), { scsu: fakeScsu });
-	parses('SCSU name handle', R.payload([R.fromName(scsuText), R.textUTF8('x')]), { scsu: fakeScsu });
+	malformed('invalid SCSU in a bare text', R.payload([badScsu]));
+	malformed('invalid SCSU in a subject', R.payload([R.topic(1, badScsu, R.textUTF8('x'))]));
+	malformed('invalid SCSU in a text part', R.payload([R.reply(1, fill(32, 7), badScsu)]));
+	malformed('invalid SCSU in a handle', R.payload([R.fromName(badScsu), R.textUTF8('x')]));
+	parses('SCSU name handle', R.payload([R.fromName(scsuText), R.textUTF8('x')]));
 	check('SCSU limit', R.SCSU_MAX, 1048576);
 	parses('SCSU of 2^20 bytes', R.payload([R.textSCSU(fill(R.SCSU_MAX, 0x41))]));
-	malformed('SCSU of 2^20 + 1 bytes, even without a decoder', R.payload([R.textSCSU(fill(R.SCSU_MAX + 1, 0x41))]));
+	malformed('SCSU of 2^20 + 1 bytes', R.payload([R.textSCSU(fill(R.SCSU_MAX + 1, 0x41))]));
 	malformed('subject not a text record', R.payload([R.topic(1, R.textUTF8('s')).fill(0x32, 6, 7)]));
 }
 
