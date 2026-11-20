@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Encodings Test</title>
+<style>
+	body { font-family: monospace; margin: 16px; background: #fff; color: #000; }
+	@media (prefers-color-scheme: dark) { body { background: #111; color: #ddd; } }
+	.fail { color: #c00; }
+</style>
+<!-- the browser half of encodings_test.mjs: encoders built from this browser's
+     TextDecoder, the reference for SPEC.md, have to give back every character
+     it decodes. Serve the directory with python3 -m http.server and open it. -->
+<h1>Encodings Test</h1>
+<pre id="out">running …</pre>
+<script type="module">
+import { encode, smallestText } from './encodings.js';
+import { TEXT_TABLE, parse, decodeText } from './records.js';
+
+const out = [];
+let failed = 0;
+const report = (ok, line) => {
+	if (!ok)
+		++failed;
+	out.push(ok ? line : `FAIL ${line}`);
+};
+
+const t0 = performance.now();
+for (const label of [...TEXT_TABLE, 'gb18030']) {
+	const dec = new TextDecoder(label);
+	const chars = new Set();
+	const two = /^(Big5|EUC-JP|Shift_JIS|EUC-KR)$/.test(label);
+	const take = (bytes) => {
+		const s = dec.decode(bytes);
+		if (!s.includes('�') && [...s].length === 1)
+			chars.add(s);
+	};
+	if (label === 'UTF-16LE') {
+		for (let cp = 0; cp < 0x10000; cp += 97)
+			if (cp < 0xD800 || cp > 0xDFFF)
+				chars.add(String.fromCharCode(cp));
+	} else if (label === 'gb18030') {
+		for (let cp = 0; cp < 0x10000; ++cp)
+			if ((cp < 0xD800 || cp > 0xDFFF) && (cp < 0xE000 || cp > 0xF8FF))
+				chars.add(String.fromCharCode(cp));
+	} else {
+		for (let a = 0; a < 256; ++a) {
+			take(Uint8Array.of(a));
+			if (two && a >= 0x81)
+				for (let b = 0x40; b < 256; ++b)
+					take(Uint8Array.of(a, b));
+		}
+	}
+	const text = [...chars].join('');
+	const bytes = encode(text, label);
+	const ok = bytes !== null && new TextDecoder(label).decode(bytes) === text;
+	let missing = '';
+	if (!ok)
+		missing = ' missing: ' + [...text].filter((c) => !encode(c, label)).slice(0, 8)
+			.map((c) => 'U+' + c.codePointAt(0).toString(16).toUpperCase()).join(' ');
+	report(ok, `${label}: ${chars.size} characters${missing}`);
+}
+report(true, `built and checked in ${Math.round(performance.now() - t0)} ms`);
+
+for (const text of ['Hungry, 73 de DL1ABC', 'Привет всем!', 'Καλημέρα', 'שלום', 'สวัสดี', '大家好', 'こんにちは', '안녕하세요', '🍕🍕🍕']) {
+	const rec = smallestText(text);
+	const node = parse(rec)[0];
+	const name = node.table === undefined ? node.name : TEXT_TABLE[node.table];
+	report(decodeText(node) === text, `${text}: ${name}, ${rec.length} bytes`);
+}
+
+out.push(failed ? `${failed} failed` : 'all passed');
+document.getElementById('out').textContent = out.join('\n');
+document.title = failed ? `Encodings Test: ${failed} failed` : 'Encodings Test: all passed';
+</script>
+</html>

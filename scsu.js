@@ -3,7 +3,7 @@
 // Unicode (UTS #6), about one byte per character for alphabetic scripts and
 // about two for CJK, covering all of Unicode.
 
-import { SCSU_MAX, textUTF8, textSCSU } from './records.js';
+import { SCSU_MAX } from './records.js';
 import { instantiate } from './wasm.js';
 
 // neither direction expands by more than a factor of four
@@ -43,14 +43,4 @@ export async function loadScsu(source = new URL('./scsu.wasm', import.meta.url))
 	};
 
 	return { encode, decode };
-}
-
-// The smaller of a Text-UTF-8 and a Text-SCSU record for str, UTF-8 when
-// they are the same size or without an SCSU module
-export function smallestText(str, scsu = null) {
-	const plain = textUTF8(str);
-	if (!scsu)
-		return plain;
-	const packed = textSCSU(scsu.encode(str));
-	return packed.length < plain.length ? packed : plain;
 }

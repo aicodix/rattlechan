@@ -1,7 +1,8 @@
 // Tests for scsu.js. Run with: node scsu_test.mjs
 
 import { readFile } from 'node:fs/promises';
-import { loadScsu, smallestText } from './scsu.js';
+import { loadScsu } from './scsu.js';
+import { smallestText } from './encodings.js';
 import * as R from './records.js';
 
 const { T } = R;
@@ -70,12 +71,9 @@ check('longest text round trip', S.decode(S.encode(longest)), longest);
 // -------------------------------------------------- with records.js
 
 {
-	const ru = smallestText(samples.Russian, S);
-	check('smallest Russian is SCSU', ru[0], T.TEXT_SCSU);
-	check('smallest English is UTF-8', smallestText('Hungry', S)[0], T.TEXT_UTF8);
-	check('without SCSU it is UTF-8', smallestText(samples.Russian)[0], T.TEXT_UTF8);
-
-	const frame = R.payload([R.fromName(smallestText('Сергей', S)), R.topic(1763380000, ru, smallestText(samples.Hindi, S))]);
+	const ru = R.textSCSU(S.encode(samples.Russian));
+	check('Hindi is smallest in SCSU', smallestText(samples.Hindi, { scsu: S })[0], T.TEXT_SCSU);
+	const frame = R.payload([R.fromName(R.textSCSU(S.encode('Сергей'))), R.topic(1763380000, ru, R.textSCSU(S.encode(samples.Hindi)))]);
 	const p = R.parse(frame, { scsu: S });
 	check('SCSU name handle', R.decodeText(p[0].prefixes[0].handle), 'Сергей');
 	check('SCSU subject', R.decodeText(p[0].subject), samples.Russian);

@@ -35,8 +35,11 @@ Early. The protocol is a v0 draft in [SPEC.md](SPEC.md) and will change while th
 * [robusto_encoder_44100.wasm](robusto_encoder_44100.wasm), [robusto_encoder_48000.wasm](robusto_encoder_48000.wasm), [robusto_decoder_44100.wasm](robusto_decoder_44100.wasm), [robusto_decoder_48000.wasm](robusto_decoder_48000.wasm): the ROBUSTO modules from the robusto branch of [aicodix/modem](https://github.com/aicodix/modem/tree/robusto), copied as they are from its `docs/temp/` at commit 63eb078
 * [robusto.js](robusto.js): glue for the ROBUSTO modules: picking a mode, encoding frames and pings to audio, and a streaming decoder that turns samples into events
 * [scsu.wasm](scsu.wasm): the [SCSU](https://github.com/xdsopl/scsu) module, copied as it is from its `docs/scsu.wasm` at commit 2f13b28
-* [scsu.js](scsu.js): glue for scsu.wasm: encoding and decoding SCSU, the decoder for the parser, and the smaller of Text-UTF-8 and Text-SCSU for a string
+* [scsu.js](scsu.js): glue for scsu.wasm: encoding and decoding SCSU, and the decoder for the parser
 * [scsu_test.mjs](scsu_test.mjs): round trips in 15 scripts, invalid input and SCSU in posts, run with `node scsu_test.mjs`
+* [encodings.js](encodings.js): encoders for GB 18030 and every Text-Table encoding, built from the browser's `TextDecoder`, and the smallest text record for a string
+* [encodings_test.mjs](encodings_test.mjs): every character the decoders produce encodes back, and the smallest record decodes to the same text, run with `node encodings_test.mjs`
+* [encodings_test.html](encodings_test.html): the same check in the browser, whose decoders are the reference; open it from `python3 -m http.server`
 * [robusto_test.mjs](robusto_test.mjs): encoder to decoder in Node.js, every short mode, pings, noise and odd chunk sizes, run with `node robusto_test.mjs`
 
 ## License
