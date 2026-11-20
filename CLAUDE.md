@@ -28,4 +28,6 @@ Done: records.js parses and encodes records (type classes, lengths, prefix chain
 
 The GUI will be a PWA served from 127.0.0.1:8080 by `python3 -m http.server`, so modules load over fetch; `loadCrypto()`, `loadHydra()`, `loadEncoder(rate)` and `loadDecoder(rate)` without a source fetch their .wasm next to their .js. The page loads the ROBUSTO modules for `AudioContext.sampleRate` (44100 or 48000).
 
+For the GUI: Safari grants persistent storage (`navigator.storage.persist()`) only to web apps added to the Home Screen or Dock; for an ordinary website it may delete everything a script stored after 7 days without use. So the GUI shows whether storage is persistent next to usage and quota, suggests installing the app when it isn't, and shows when the last export was made, since exports are the backup either way. The maintainer runs encodings_test.html and storage_test.html in Chrome and Safari; both passed there.
+
 Next: to be decided with the maintainer (the GUI with microphone, speaker and AudioWorklet).
