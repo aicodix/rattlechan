@@ -69,12 +69,101 @@ function position(n) {
 		el('span.dim', ` fix ${when(n.time * 1000)}`));
 }
 
+// Animated WebP: a VP8X chunk first, with its animation flag set
+export const animatedWebP = (b) => b.length > 20
+	&& String.fromCharCode(...b.subarray(0, 4), ...b.subarray(8, 16)) === 'RIFFWEBPVP8X'
+	&& (b[20] & 0x02) !== 0;
+
+// the first frame of a picture, on a canvas
+async function still(blob) {
+	const canvas = el('canvas.picture');
+	const ctx = canvas.getContext('2d');
+	if (typeof ImageDecoder !== 'undefined') {
+		try {
+			const dec = new ImageDecoder({ data: await blob.arrayBuffer(), type: blob.type });
+			const { image } = await dec.decode({ frameIndex: 0 });
+			canvas.width = image.displayWidth;
+			canvas.height = image.displayHeight;
+			ctx.drawImage(image, 0, 0);
+			image.close();
+			dec.close();
+			return canvas;
+		} catch {}
+	}
+	// a freshly decoded image draws its first frame
+	const img = new Image();
+	img.src = URL.createObjectURL(blob);
+	try {
+		await img.decode();
+		canvas.width = img.naturalWidth;
+		canvas.height = img.naturalHeight;
+		ctx.drawImage(img, 0, 0);
+	} finally {
+		URL.revokeObjectURL(img.src);
+	}
+	return canvas;
+}
+
+// play() and stop() of each animated picture on the page
+const players = new WeakMap();
+
+// Nothing moves by itself: an animated picture shows its first frame and
+// plays only while the mouse is over it, or while a finger is on its
+// entry (see entry()), each time from the start
+async function animated(blob, label) {
+	const frame = await still(blob);
+	frame.setAttribute('role', 'img');
+	frame.setAttribute('aria-label', `${label}, animated`);
+	const wrap = el('span.animated', frame);
+	let img = null;
+	const play = () => {
+		if (img)
+			return;
+		img = el('img.picture');
+		img.alt = label;
+		img.src = URL.createObjectURL(blob);
+		frame.replaceWith(img);
+	};
+	const stop = () => {
+		if (!img)
+			return;
+		img.replaceWith(frame);
+		URL.revokeObjectURL(img.src);
+		img = null;
+	};
+	players.set(wrap, { play, stop });
+	wrap.addEventListener('pointerenter', (e) => e.pointerType !== 'touch' && play());
+	wrap.addEventListener('pointerleave', (e) => e.pointerType !== 'touch' && stop());
+	return wrap;
+}
+
+// a touch anywhere on an entry plays its animated pictures until the
+// finger lifts, so the finger doesn't cover them
+function touchToPlay(box) {
+	const all = (what) => {
+		for (const a of box.querySelectorAll('.animated'))
+			players.get(a)?.[what]();
+	};
+	box.addEventListener('pointerdown', (e) => e.pointerType === 'touch' && all('play'));
+	for (const type of ['pointerup', 'pointercancel', 'pointerleave'])
+		box.addEventListener(type, (e) => e.pointerType === 'touch' && all('stop'));
+}
+
 // a WebP from a stranger is only drawn when asked for
 function picture(n, label) {
 	const b = el('button.small', `show ${label}, ${bytes(n.body.length)}`);
-	b.onclick = () => {
+	b.onclick = async () => {
+		const blob = new Blob([n.body], { type: 'image/webp' });
+		if (animatedWebP(n.body)) {
+			try {
+				b.replaceWith(await animated(blob, label));
+			} catch {
+				b.replaceWith(el('span.bad', `${label} can't be shown`));
+			}
+			return;
+		}
 		const img = el('img.picture');
-		img.src = URL.createObjectURL(new Blob([n.body], { type: 'image/webp' }));
+		img.src = URL.createObjectURL(blob);
 		img.alt = label;
 		b.replaceWith(img);
 	};
@@ -206,6 +295,7 @@ export function entry(e) {
 		else if (f.have)
 			box.append(el('div.dim', `${f.have} of ${f.K} blocks`));
 	}
+	touchToPlay(box);
 	return box;
 }
 

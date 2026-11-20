@@ -139,11 +139,15 @@ const enqueue = (events) => {
 let receiver = null;
 let wakeLock = null;
 
+// the clipping warning stays on for 2 seconds instead of blinking
+let hotUntil = 0;
 const level = (peak) => {
 	// -60..0 dBFS over the width of the meter
 	const db = peak > 0 ? 20 * Math.log10(peak) : -60;
 	$('level').style.width = `${Math.max(0, Math.min(100, (db + 60) / 60 * 100))}%`;
-	$('level').classList.toggle('hot', peak > 0.9);
+	if (peak > 0.9)
+		hotUntil = Date.now() + 2000;
+	$('level').classList.toggle('hot', Date.now() < hotUntil);
 };
 
 // a phone stops the microphone once its screen goes dark

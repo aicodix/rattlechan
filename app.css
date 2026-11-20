@@ -188,6 +188,12 @@ td input { width: 6em; min-height: 36px; padding: 4px 8px; }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
 .chip { font-size: 13px; padding: 2px 8px; border-radius: 10px; background: var(--chip); }
 
-.picture { display: block; max-width: 100%; max-height: 320px; border-radius: 6px; }
+.picture { display: block; max-width: 100%; max-height: 320px; width: auto; height: auto; border-radius: 6px; }
+.animated { display: inline-block; max-width: 100%; -webkit-touch-callout: none; user-select: none; }
+
+/* nothing moves where the system asks for less motion */
+@media (prefers-reduced-motion: reduce) {
+	* { transition: none !important; animation: none !important; }
+}
 
 a { color: var(--accent); }

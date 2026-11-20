@@ -13,6 +13,11 @@ A message board that travels as sound. The protocol is in SPEC.md (v0 draft, sti
 - Every module gets a test file `<name>_test.mjs`, run with `node <name>_test.mjs`, no test framework.
 - License: 0BSD.
 
+## GUI
+
+- Colors only through the variables in app.css, so every view works in light and dark, whether it follows the system or is forced.
+- Never a flashing element. Nothing moves by itself: animated pictures and avatars show their first frame and play only while the mouse is over them or, on a touch screen, while a finger is on their message. Warnings latch for seconds instead of blinking. Under `prefers-reduced-motion` there are no transitions at all.
+
 ## Commit messages
 
 Match the existing history:
