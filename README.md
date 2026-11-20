@@ -39,7 +39,7 @@ Early. The protocol is a v0 draft in [SPEC.md](SPEC.md) and will change while th
 * [encodings.js](encodings.js): encoders for GB 18030 and every Text-Table encoding, built from the browser's `TextDecoder`, and the smallest text record for a string
 * [encodings_test.mjs](encodings_test.mjs): every character the decoders produce encodes back, and the smallest record decodes to the same text, run with `node encodings_test.mjs`
 * [encodings_test.html](encodings_test.html): the same check in the browser, whose decoders are the reference; open it from `python3 -m http.server`
-* [storage.js](storage.js): the station's storage on the Origin Private File System, or in memory: frames as received, one file each, in a precious and a logged tier with a byte budget each; revocations forever; data and secrets as JSON
+* [storage.js](storage.js): the station's storage on the Origin Private File System, or in memory: frames as received, one file each, in a precious and a logged tier with a byte budget each; revocations forever; data and secrets as JSON; deleting it all
 * [storage_test.mjs](storage_test.mjs): the store in memory, run with `node storage_test.mjs`
 * [storage_test.html](storage_test.html): the store on OPFS, export and import in the browser; open it from `python3 -m http.server`
 * [tar.js](tar.js): writing and reading tar archives (ustar) in memory

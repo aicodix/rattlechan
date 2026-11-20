@@ -1,7 +1,7 @@
 // Tests for storage.js. Run with: node storage_test.mjs
 // Uses the memory backend; storage_test.html runs the same store on OPFS.
 
-import { memoryBackend, openStore, parseFrameName, safeName, BUDGET_DEFAULT } from './storage.js';
+import { memoryBackend, openStore, parseFrameName, safeName, BUDGET_DEFAULT, DIRS } from './storage.js';
 
 let checks = 0, failed = 0;
 
@@ -177,6 +177,16 @@ const now = () => clock;
 	check('not seen before reload', (await S.frames()).length, 0);
 	await S.reload();
 	check('seen after reload', (await S.frames()).length, 1);
+
+	// clear() deletes every file in every directory
+	await S.addRevocation(revocation(1, 'retired'));
+	await S.setSettings({ budgets: { logged: 1000 } });
+	check('clear: files of all kinds', await S.clear(), 5);
+	for (const dir of DIRS)
+		check(`clear: ${dir} empty`, (await backend.list(dir)).length, 0);
+	check('clear: no frames', (await S.frames()).length, 0);
+	check('clear: settings back to defaults', (await S.settings()).budgets.logged, BUDGET_DEFAULT);
+	check('clear: works afterwards', (await S.addFrame(frame(9, 9))) !== null, true);
 }
 
 for (const [name, ok] of [['a.bin', true], ['A-b_c.1', true], ['', false], ['.hidden', false], ['a..b', false], ['a/b', false], ['x'.repeat(100), true], ['x'.repeat(101), false]])

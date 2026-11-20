@@ -50,6 +50,16 @@
 			<label class="file button">Import <input id="import" type="file" accept=".gz,.tgz,application/gzip"></label>
 		</div>
 		<p id="import-result" class="dim"></p>
+
+		<h2 class="bad">Danger Zone</h2>
+		<div class="danger-zone">
+			<p>Deletes everything this station keeps: all frames, revocations, settings and secrets, private keys included. Export data and secrets first if you may want them back. Type DELETE to confirm.</p>
+			<div class="row">
+				<input id="delete-confirm" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="DELETE" aria-label="type DELETE to confirm">
+				<button id="delete-all" class="danger" disabled>Delete all data</button>
+			</div>
+			<p id="delete-result" class="dim"></p>
+		</div>
 	</section>
 </main>
 

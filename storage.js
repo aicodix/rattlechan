@@ -301,12 +301,26 @@ export async function openStore(backend, { now = () => Date.now() } = {}) {
 
 	const readRevocation = (name) => backend.read(`revocations/${name}`);
 
+	// Delete everything: frames, revocations, data and secrets. Returns
+	// how many files went.
+	const clear = async () => {
+		let n = 0;
+		for (const dir of DIRS)
+			for (const { name } of await backend.list(dir)) {
+				await backend.remove(`${dir}/${name}`);
+				++n;
+			}
+		index = null;
+		return n;
+	};
+
 	return {
 		backend,
 		addFrame, readFrame, frames, touch, removeFrame, usage, evict, reload,
 		promote: (name) => move(name, 'precious'),
 		demote: (name) => move(name, 'logged'),
 		addRevocation, revocations, readRevocation,
+		clear,
 		settings,
 		// changes are merged, budgets too: { budgets: { logged: 0 } } keeps the other
 		setSettings: async (changes) => {

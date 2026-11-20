@@ -316,6 +316,44 @@ $('import').onchange = async () => {
 	refreshStorage();
 };
 
+// ---------------------------------------------------------- danger zone
+
+$('delete-confirm').oninput = () => {
+	$('delete-all').disabled = $('delete-confirm').value !== 'DELETE';
+};
+
+// everything the station keeps, the offline copy of the app and what the
+// page remembers
+$('delete-all').onclick = async () => {
+	$('delete-all').disabled = true;
+	$('delete-confirm').value = '';
+	try {
+		if (receiver)
+			await stopListening();
+		await queue;
+		const n = await store.clear();
+		try {
+			await caches.delete('rattlechan');
+		} catch {}
+		try {
+			for (const key of Object.keys(localStorage))
+				if (key.startsWith('rattlechan.'))
+					localStorage.removeItem(key);
+		} catch {}
+		station = openStation({ store, crypto, hydra });
+		$('entries').replaceChildren();
+		shown = 0;
+		$('log-empty').hidden = false;
+		$('log-more').hidden = true;
+		$('import-result').textContent = '';
+		$('delete-result').textContent = `Deleted ${n} file${n === 1 ? '' : 's'}.`;
+		status('all data deleted');
+	} catch (err) {
+		$('delete-result').textContent = `Can't delete: ${err.message}`;
+	}
+	refreshStorage();
+};
+
 // Chrome offers installing through its own prompt
 let installPrompt = null;
 addEventListener('beforeinstallprompt', (e) => {
