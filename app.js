@@ -316,6 +316,30 @@ $('import').onchange = async () => {
 	refreshStorage();
 };
 
+// ---------------------------------------------------------- appearance
+
+// System follows the browser; Light or Dark is kept on this device only
+const THEME_COLOR = { light: '#f7f6f3', dark: '#1c1b1a' };
+
+function applyTheme(theme) {
+	if (theme === 'light' || theme === 'dark')
+		document.documentElement.dataset.theme = theme;
+	else
+		delete document.documentElement.dataset.theme;
+	// the browser's bar: both tags follow the pick, or each its own scheme
+	for (const meta of document.querySelectorAll('meta[name=theme-color]')) {
+		const own = meta.media.includes('dark') ? 'dark' : 'light';
+		meta.content = THEME_COLOR[THEME_COLOR[theme] ? theme : own];
+	}
+}
+
+$('theme').value = document.documentElement.dataset.theme ?? '';
+applyTheme($('theme').value);
+$('theme').onchange = () => {
+	remember('theme', $('theme').value);
+	applyTheme($('theme').value);
+};
+
 // ---------------------------------------------------------- danger zone
 
 $('delete-confirm').oninput = () => {
@@ -323,7 +347,7 @@ $('delete-confirm').oninput = () => {
 };
 
 // everything the station keeps, the offline copy of the app and what the
-// page remembers
+// page remembers, except the appearance, which belongs to the device
 $('delete-all').onclick = async () => {
 	$('delete-all').disabled = true;
 	$('delete-confirm').value = '';
@@ -337,7 +361,7 @@ $('delete-all').onclick = async () => {
 		} catch {}
 		try {
 			for (const key of Object.keys(localStorage))
-				if (key.startsWith('rattlechan.'))
+				if (key.startsWith('rattlechan.') && key !== 'rattlechan.theme')
 					localStorage.removeItem(key);
 		} catch {}
 		station = openStation({ store, crypto, hydra });
