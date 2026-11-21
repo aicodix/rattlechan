@@ -58,20 +58,39 @@ const trusted = (key) => key !== null && station.keyInfo(key).trusted;
 // can claim a call sign or name, so otherwise they are marked
 function prefix(p, believed) {
 	const what = {
-		[T.FROM_CALL]: 'from', [T.FROM_NAME]: 'from', [T.TO_KEY]: 'to key', [T.TO_CALL]: 'to',
-		[T.TO_NAME]: 'to', [T.TO_GROUP_NAME]: 'to group', [T.TO_GROUP_KEY]: 'to group key',
+		[T.FROM_CALL]: 'from', [T.FROM_NAME]: 'from', [T.TO_KEY]: 'to', [T.TO_CALL]: 'to',
+		[T.TO_NAME]: 'to', [T.TO_GROUP_NAME]: 'to group', [T.TO_GROUP_KEY]: 'to group',
 	}[p.type];
 	let handle;
 	if (p.type === T.FROM_CALL || p.type === T.TO_CALL)
 		handle = el('span.call', p.handle);
 	else if (p.type === T.TO_KEY || p.type === T.TO_GROUP_KEY)
-		handle = el('span.key', short(p.handle));
+		return recipient(p.handle, what);
 	else
 		handle = text(p.handle, 'name');
 	if (p.type !== T.FROM_CALL && p.type !== T.FROM_NAME || believed)
 		return el('span.chip', `${what} `, handle);
 	const chip = el('span.chip.unverified', `${what} `, handle, '?');
 	chip.title = 'unverified: anyone can claim this';
+	return chip;
+}
+
+// A recipient key: its identicon, and what the station learned about it,
+// call sign and name, once it is trusted (SPEC.md: names are earned),
+// otherwise its short hash; the whole fingerprint on hover
+function recipient(keyBytes, what) {
+	const key = hex(keyBytes);
+	const info = station.keyInfo(key);
+	const chip = el('span.chip.recipient', `${what} `, identicon(keyBytes, 16), ' ');
+	if (info.trusted && (info.callSign || info.name)) {
+		if (info.callSign)
+			chip.append(el('span.call', info.callSign));
+		if (info.name)
+			chip.append(info.callSign ? ' ' : '', nameOf(info.name));
+	} else {
+		chip.append('key ', el('span.key', short(keyBytes)));
+	}
+	chip.title = key.match(/.{4}/g).join(' ');
 	return chip;
 }
 
