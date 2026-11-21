@@ -50,7 +50,8 @@ check('topic: smallest encoding, not UTF-8', p[0].text.type !== R.T.TEXT_UTF8, t
 const parent = Uint8Array.from({ length: 32 }, (_, i) => i);
 p = R.parse(compose({ kind: 'reply', parent, text: 'Thanks', callSign: 'DL1ABC', name: 'Anna' }));
 check('reply: a Reply', p[0].type, R.T.REPLY);
-check('reply: no prefixes, even with a call sign', p[0].prefixes.length, 0);
+check('reply: From-Call', p[0].prefixes[0].handle, 'DL1ABC');
+check('reply: From-Name', R.decodeText(p[0].prefixes[1].handle), 'Anna');
 check('reply: parent', hex(p[0].parent), hex(parent));
 
 p = R.parse(compose({ kind: 'message', text: 'Hungry', callSign: 'DL1ABC' }));
@@ -67,7 +68,7 @@ check('message: From-Call', p[0].prefixes[0].handle, 'DL1ABC');
 		check(`signed ${kind}: one Signed record`, q.length === 1 && q[0].type, R.T.SIGNED);
 		check(`signed ${kind}: verifies`, q[0].verified, true);
 		const inner = q[0].children[0];
-		check(`signed ${kind}: From inside`, inner.prefixes.length, kind === 'reply' ? 0 : 2);
+		check(`signed ${kind}: From inside`, inner.prefixes.length, 2);
 		check(`signed ${kind}: ID`, kind === 'message' || inner.id !== null, true);
 	}
 }

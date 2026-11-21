@@ -532,9 +532,14 @@ function parseRecord(buf, node, ctx) {
 	const type = node.type, n = node.body.length;
 	const bad = (what) => { throw new MalformedError(what, node.offset); };
 
-	// prefixes go in front of Topic, Bundle and bare (optional) records only
-	if (node.chain.length && !(type === T.TOPIC || type === T.BUNDLE || isOptional(type) || isMustUnderstand(type)))
-		bad(type === T.REPLY ? 'prefix applies to a Reply' : `prefix applies to ${node.name}`);
+	// prefixes go in front of Topic, Bundle and bare (optional) records, and
+	// a Reply takes From prefixes only: it goes where its parent is
+	if (type === T.REPLY) {
+		if (node.chain.some((p) => p.type !== T.FROM_CALL && p.type !== T.FROM_NAME))
+			bad('To prefix applies to a Reply');
+	} else if (node.chain.length && !(type === T.TOPIC || type === T.BUNDLE || isOptional(type) || isMustUnderstand(type))) {
+		bad(`prefix applies to ${node.name}`);
+	}
 	// Keyed holds Replies only, besides unknown records
 	if (ctx.scope === 'keyed' && type !== T.REPLY && isKnown(type))
 		bad(`${node.name} inside Keyed`);

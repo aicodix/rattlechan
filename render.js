@@ -128,6 +128,16 @@ function face(key, size = 32) {
 	return wrap;
 }
 
+// a name learned from a post is a text record, one from the station's own
+// key list a string
+function nameOf(name) {
+	if (typeof name !== 'string')
+		return text(name, 'name');
+	const e = el('span.name', name);
+	e.dir = 'auto';
+	return e;
+}
+
 // who signed: face, then call sign and name once trusted, the short key
 // otherwise, and the button to trust or stop trusting
 function signer(n) {
@@ -138,7 +148,7 @@ function signer(n) {
 		if (info.callSign)
 			who.append(el('span.call', info.callSign));
 		if (info.name)
-			who.append(info.callSign ? ' ' : '', text(info.name, 'name'));
+			who.append(info.callSign ? ' ' : '', nameOf(info.name));
 		who.append(' ', el('span.key', short(n.key)));
 	} else {
 		who.append('key ', el('span.key', short(n.key)));
@@ -164,7 +174,7 @@ export function confirmTrust(key) {
 	if (info.callSign)
 		says.push(el('span.call', info.callSign));
 	if (info.name)
-		says.push(says.length ? ' ' : '', text(info.name, 'name'));
+		says.push(says.length ? ' ' : '', nameOf(info.name));
 	const cancel = el('button', 'Cancel');
 	const ok = el('button.primary', 'Trust');
 	const dialog = el('dialog.trust-dialog',

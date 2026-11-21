@@ -76,8 +76,8 @@ const [crypto, hydra] = await Promise.all([
 ]);
 // ----------------------------------------------------------------- log
 
-// the fingerprints of the station's own keys, filled by fillKeys()
-let ownKeys = new Set();
+// the station's own keys by fingerprint, filled by fillKeys()
+let ownKeys = new Map();
 
 // what the log shows, newest last: () => element, so it can be drawn
 // again when trust changes what an entry looks like
@@ -113,7 +113,12 @@ async function restart() {
 
 // asking before trusting, then moving the key's frames
 view.configure({
-	keyInfo: (key) => ({ ...station.keyInfo(key), own: ownKeys.has(key) }),
+	// an own key says who it is from the key list, before any post has
+	keyInfo: (key) => {
+		const info = station.keyInfo(key);
+		const own = ownKeys.get(key);
+		return own ? { ...info, own: true, callSign: own.callSign, name: own.name } : { ...info, own: false };
+	},
 	trust: async (key, on) => {
 		if (on && !await view.confirmTrust(key))
 			return;
@@ -613,9 +618,10 @@ function keyCard(k) {
 // the key list in Station and the choice in Send
 async function fillKeys() {
 	const list = keys ? await keys.list() : [];
-	const before = [...ownKeys].sort().join();
-	ownKeys = new Set(list.map((k) => k.key));
-	if ([...ownKeys].sort().join() !== before)
+	const shown = (m) => JSON.stringify([...m].sort());
+	const before = shown(ownKeys);
+	ownKeys = new Map(list.map((k) => [k.key, { callSign: k.callSign, name: k.name }]));
+	if (shown(ownKeys) !== before)
 		redraw();
 	$('key-list').replaceChildren(...list.map(keyCard));
 	const sel = $('signer');

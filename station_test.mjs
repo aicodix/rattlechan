@@ -130,6 +130,11 @@ check('bad block dropped', typeof (await S.receive(bad)).error, 'string');
 	lie[60] ^= 1;
 	await T1.receive(lie);
 	check('forged: nothing learned', T1.keyInfo(annaKey).callSign, 'DL1ABC');
+	// a key that only replies says who it is too
+	const bob = C.newPrivateKey(), bobKey = hex(C.fingerprint(bob));
+	await T1.receive(R.payload([C.signRecords(bob, R.fromCall('PA3XYZ'), R.fromName(R.textUTF8('Jan')), R.reply(1763380100, new Uint8Array(32), R.textUTF8('hi')))]));
+	check('learned from a Reply: call sign', T1.keyInfo(bobKey).callSign, 'PA3XYZ');
+	check('learned from a Reply: name', R.decodeText(T1.keyInfo(bobKey).name), 'Jan');
 
 	check('trusting moves two frames', await T1.setTrust(annaKey, true), 2);
 	check('trusted', T1.keyInfo(annaKey).trusted, true);

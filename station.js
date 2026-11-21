@@ -11,7 +11,7 @@
 // Avatar under a verified signature of a trusted key, directly or in the
 // payload its Fragments reassemble to, and the station's own frames (by
 // their BLAKE2s hash in data/own.json); everything else is logged. A key's
-// call sign, name and avatar are learned from its verified signed Topics
+// call sign, name and avatar are learned from its verified signed posts
 // and Avatars, newest arrival first, and only shown once it is trusted.
 
 import { parse, walk, MalformedError, T } from './records.js';
@@ -51,7 +51,7 @@ export function facts(nodes) {
 			for (const part of node.parts)
 				if (part.type === T.AVATAR)
 					avatar(part, keys);
-			if (node.type === T.TOPIC && keys.length) {
+			if (keys.length) {
 				const learned = { key: hex(keys[keys.length - 1]), callSign: null, name: null };
 				for (const p of node.chain) {
 					if (p.type === T.FROM_CALL)

@@ -28,8 +28,8 @@ export const needs = (mode) => THRESHOLDS[mode & 31];
 //   kind 'topic'    subject and text
 //   kind 'reply'    parent (32-byte post ID) and text
 //   kind 'message'  text alone, a bare message
-// A Topic and a message carry From-Call and From-Name when given; a Reply
-// can't carry prefixes (SPEC.md). sign(...records), as keys.js gives it,
+// Each carries From-Call and From-Name when given; a Reply goes where its
+// parent is, so it never carries To prefixes (SPEC.md). sign(...records), as keys.js gives it,
 // wraps the records in one Signed record; without it the post is unsigned,
 // as sensors and experiments send them.
 export function compose({ kind, subject = '', text = '', parent = null, callSign = null, name = null, timestamp = Math.floor(Date.now() / 1000), sign = null }) {
@@ -53,7 +53,7 @@ function post({ kind, subject, text, parent, callSign, name, timestamp }) {
 	case 'reply':
 		if (!(parent instanceof Uint8Array) || parent.length !== 32)
 			throw new RangeError('a Reply needs the 32-byte ID of its parent');
-		return [R.reply(timestamp, parent, smallestText(text))];
+		return [...from, R.reply(timestamp, parent, smallestText(text))];
 	case 'message':
 		return [...from, smallestText(text)];
 	}
