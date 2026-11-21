@@ -32,7 +32,7 @@ Early. The protocol is a v0 draft in [SPEC.md](SPEC.md) and will change while th
 * [hydra.wasm](hydra.wasm): the [HYDRA](https://github.com/xdsopl/hydra) module, copied as it is from its `docs/hydra.wasm` at commit 87fa55a
 * [hydra.js](hydra.js): glue for hydra.wasm: planning, encoding into Fragments, verifying, decoding, the relay check, and a reassembler that collects blocks and asks for missing ones with Request-Root
 * [hydra_test.mjs](hydra_test.mjs): tests with HYDRA's planning table and a lossy channel, run with `node hydra_test.mjs`
-* [robusto_encoder_44100.wasm](robusto_encoder_44100.wasm), [robusto_encoder_48000.wasm](robusto_encoder_48000.wasm), [robusto_decoder_44100.wasm](robusto_decoder_44100.wasm), [robusto_decoder_48000.wasm](robusto_decoder_48000.wasm): the ROBUSTO modules from the robusto branch of [aicodix/modem](https://github.com/aicodix/modem/tree/robusto), copied as they are from its `docs/temp/` at commit 63eb078
+* [robusto_encoder_44100.wasm](robusto_encoder_44100.wasm), [robusto_encoder_48000.wasm](robusto_encoder_48000.wasm), [robusto_decoder_44100.wasm](robusto_decoder_44100.wasm), [robusto_decoder_48000.wasm](robusto_decoder_48000.wasm): the ROBUSTO modules from the robusto branch of [aicodix/modem](https://github.com/aicodix/modem/tree/robusto), copied as they are from its `docs/temp/` at commit a469d2e
 * [robusto.js](robusto.js): glue for the ROBUSTO modules: picking a mode, encoding frames and pings to audio, and a streaming decoder that turns samples into events
 * [scsu.js](scsu.js): the [SCSU](https://github.com/xdsopl/scsu) JavaScript module, copied as it is from its `module/scsu.js` at commit c50f08c
 * [scsu_test.mjs](scsu_test.mjs): round trips in 15 scripts, U+FEFF, invalid input and SCSU in posts, run with `node scsu_test.mjs`
@@ -47,6 +47,8 @@ Early. The protocol is a v0 draft in [SPEC.md](SPEC.md) and will change while th
 * [archive.js](archive.js): export of the storage as .tar.gz, data and secrets in separate archives, and import that adds what is missing
 * [archive_test.mjs](archive_test.mjs): export, import, merging and hostile archives, run with `node archive_test.mjs`
 * [robusto_test.mjs](robusto_test.mjs): encoder to decoder in Node.js, every short mode, pings, noise and odd chunk sizes, run with `node robusto_test.mjs`
+* [examples/session.mjs](examples/session.mjs): an evening on the air as one seamless WAV to try the GUI without a radio, with stations posting, replying, addressing each other, a picture, an avatar and Fragments; run `node examples/session.mjs out.wav` and play it or decode it in the Station tab. [dusk.webp](examples/dusk.webp) and [avatar.webp](examples/avatar.webp) are its pictures
+* [examples/session_test.mjs](examples/session_test.mjs): the whole session through the decoder and a station, at both rates, run with `node examples/session_test.mjs`
 * [station.js](station.js): what the station does with a received frame: parse, check signatures, reassemble Fragments, learn about keys, store in the tier trust puts it in, and replay the stored frames at startup
 * [station_test.mjs](station_test.mjs): frames through the station into a store in memory, run with `node station_test.mjs`
 * [index.html](index.html), [app.js](app.js), [app.css](app.css), [render.js](render.js): the GUI: a log of everything received and sent, sending signed posts, the station's keys, and the station's settings, receiver and storage; serve the directory with `python3 -m http.server` and open it
