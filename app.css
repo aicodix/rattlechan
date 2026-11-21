@@ -193,6 +193,10 @@ fieldset.choice label:has(input:disabled) { color: var(--dim); }
 details#new-key { margin: 8px 0; }
 details#new-key summary { cursor: pointer; color: var(--accent); min-height: 44px; display: flex; align-items: center; }
 
+label.check { display: flex; gap: 8px; align-items: baseline; margin: 8px 0; min-height: 32px; }
+label.check[hidden] { display: none; }
+label.check input { min-height: 0; accent-color: var(--accent); }
+
 .post-actions { display: flex; justify-content: flex-end; }
 
 .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }

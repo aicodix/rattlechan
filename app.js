@@ -696,6 +696,10 @@ async function draft() {
 	const k = keys && (await keys.list()).find((x) => x.key === $('signer').value);
 	if (!k)
 		return { why: keys ? 'Every post is signed: add a key in Station first.' : 'CRYPTO failed to load, so nothing can be signed.' };
+	// the choice to include call sign and name, for keys that have them
+	$('introduce-field').hidden = !k.callSign && !k.name;
+	$('introduce-who').textContent = [k.callSign, k.name].filter(Boolean).join(' · ');
+	const introduce = !$('introduce-field').hidden && $('introduce').checked;
 	const text = $('text').value;
 	if (!text.trim())
 		return { why: 'Write something.' };
@@ -705,7 +709,10 @@ async function draft() {
 		return { why: 'Pick a post to reply to.' };
 	const payload = compose({
 		kind, subject: $('subject').value.trim(), text, parent: replyTo,
-		callSign: k.callSign, name: k.name, sign: await keys.signer(k.key),
+		// the key's call sign and name only when asked for: they cost bytes,
+		// and stations remember them from earlier posts
+		callSign: introduce ? k.callSign : null, name: introduce ? k.name : null,
+		sign: await keys.signer(k.key),
 	});
 	return { payload, o };
 }
@@ -787,6 +794,7 @@ const typed = () => {
 		$('send-status').textContent = '';
 	estimate();
 };
+$('introduce').onchange = estimate;
 $('subject').oninput = typed;
 $('text').oninput = typed;
 
@@ -818,6 +826,7 @@ $('send-button').onclick = async () => {
 		if (complete) {
 			$('text').value = '';
 			$('subject').value = '';
+			$('introduce').checked = false;
 			replyTo = null;
 			setKind(kind === 'reply' ? 'topic' : kind);
 		}

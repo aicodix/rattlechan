@@ -36,6 +36,7 @@
 	<section id="send" class="tab" hidden>
 		<p id="no-keys" class="warn" hidden>Every post is signed: add a key in Station first.</p>
 		<label class="field" id="signer-field">Sign as <select id="signer"></select></label>
+		<label class="check" id="introduce-field" hidden><input type="checkbox" id="introduce"> <span>Include <span id="introduce-who"></span>, so others learn who this key is</span></label>
 		<div class="segmented" role="radiogroup" aria-label="kind of post">
 			<button role="radio" data-kind="topic" aria-checked="true">Topic</button>
 			<button role="radio" data-kind="reply" aria-checked="false">Reply</button>
