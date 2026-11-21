@@ -40,10 +40,23 @@
 		<div class="segmented" role="radiogroup" aria-label="kind of post">
 			<button role="radio" data-kind="topic" aria-checked="true">Topic</button>
 			<button role="radio" data-kind="reply" aria-checked="false">Reply</button>
-			<button role="radio" data-kind="message" aria-checked="false">Message</button>
 		</div>
 		<p id="reply-to" hidden></p>
 		<p id="reply-hint" class="dim" hidden>Tap Reply on a post in the log to answer it.</p>
+		<div id="to-field">
+			<label class="field">To
+				<select id="to-kind">
+					<option value="">everyone</option>
+					<option value="call">a call sign</option>
+					<option value="key">a key</option>
+					<option value="name">a name</option>
+					<option value="group">a board (group name)</option>
+				</select>
+			</label>
+			<label class="field" id="to-value-field" hidden><span id="to-value-label"></span> <input id="to-value" autocomplete="off" spellcheck="false" dir="auto"></label>
+			<datalist id="known-keys"></datalist>
+			<p id="to-hint" class="dim" hidden></p>
+		</div>
 		<label class="field" id="subject-field">Subject <input id="subject" autocomplete="off" dir="auto"></label>
 		<label class="field">Text <textarea id="text" rows="6" dir="auto"></textarea></label>
 		<p id="send-info" class="dim"></p>

@@ -135,6 +135,9 @@ check('bad block dropped', typeof (await S.receive(bad)).error, 'string');
 	await T1.receive(R.payload([C.signRecords(bob, R.fromCall('PA3XYZ'), R.fromName(R.textUTF8('Jan')), R.reply(1763380100, new Uint8Array(32), R.textUTF8('hi')))]));
 	check('learned from a Reply: call sign', T1.keyInfo(bobKey).callSign, 'PA3XYZ');
 	check('learned from a Reply: name', R.decodeText(T1.keyInfo(bobKey).name), 'Jan');
+	check('seen: newest first', T1.seen()[0].key, bobKey);
+	check('seen: each key once', new Set(T1.seen().map((k) => k.key)).size, T1.seen().length);
+	check('seen: keys of earlier posts too', T1.seen().some((k) => k.key === annaKey), true);
 
 	check('trusting moves two frames', await T1.setTrust(annaKey, true), 2);
 	check('trusted', T1.keyInfo(annaKey).trusted, true);

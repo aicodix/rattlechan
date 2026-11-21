@@ -320,5 +320,16 @@ export async function openStation({ store, crypto = null, hydra = null }) {
 	// sets of Fragments still waiting for blocks
 	const waiting = () => reassembler ? reassembler.missing() : [];
 
-	return { analyze, receive, sent, replay, waiting, entries: () => all, keyInfo, setTrust, isTrusted: (k) => trusted.has(k) };
+	// every key that signed a post the station holds, newest first
+	const seen = () => {
+		const out = [];
+		for (const e of [...all].reverse())
+			for (const f of [e.facts, ...e.fragments.map((x) => x.facts)])
+				for (const k of f?.postKeys ?? [])
+					if (!out.includes(k))
+						out.push(k);
+		return out.map(keyInfo);
+	};
+
+	return { analyze, receive, sent, replay, waiting, entries: () => all, keyInfo, seen, setTrust, isTrusted: (k) => trusted.has(k) };
 }

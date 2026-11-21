@@ -32,12 +32,30 @@ export const needs = (mode) => THRESHOLDS[mode & 31];
 // parent is, so it never carries To prefixes (SPEC.md). sign(...records), as keys.js gives it,
 // wraps the records in one Signed record; without it the post is unsigned,
 // as sensors and experiments send them.
-export function compose({ kind, subject = '', text = '', parent = null, callSign = null, name = null, timestamp = Math.floor(Date.now() / 1000), sign = null }) {
-	const records = post({ kind, subject, text, parent, callSign, name, timestamp });
+//
+// A Topic goes where to sends it (SPEC.md, Where a post goes), or to
+// everyone without it: { call } a call sign, { name } a name, { key } a
+// 32-byte key, { group } a group name, a board.
+export function compose({ kind, subject = '', text = '', parent = null, callSign = null, name = null, to = null, timestamp = Math.floor(Date.now() / 1000), sign = null }) {
+	const records = post({ kind, subject, text, parent, callSign, name, to, timestamp });
 	return R.payload(sign ? [sign(...records)] : records);
 }
 
-function post({ kind, subject, text, parent, callSign, name, timestamp }) {
+function address(to) {
+	if (!to)
+		return [];
+	if (to.call)
+		return [R.toCall(to.call)];
+	if (to.name)
+		return [R.toName(smallestText(to.name))];
+	if (to.key)
+		return [R.toKey(to.key)];
+	if (to.group)
+		return [R.toGroupName(smallestText(to.group))];
+	throw new RangeError('an address is a call sign, a name, a key or a group name');
+}
+
+function post({ kind, subject, text, parent, callSign, name, to, timestamp }) {
 	if (!text)
 		throw new RangeError('a post needs text');
 	const from = [];
@@ -49,13 +67,15 @@ function post({ kind, subject, text, parent, callSign, name, timestamp }) {
 	case 'topic':
 		if (!subject)
 			throw new RangeError('a Topic needs a subject');
-		return [...from, R.topic(timestamp, smallestText(subject), smallestText(text))];
+		return [...from, ...address(to), R.topic(timestamp, smallestText(subject), smallestText(text))];
 	case 'reply':
+		if (to)
+			throw new RangeError('a Reply goes where its parent is, never to an address');
 		if (!(parent instanceof Uint8Array) || parent.length !== 32)
 			throw new RangeError('a Reply needs the 32-byte ID of its parent');
 		return [...from, R.reply(timestamp, parent, smallestText(text))];
 	case 'message':
-		return [...from, smallestText(text)];
+		return [...from, ...address(to), smallestText(text)];
 	}
 	throw new RangeError(`unknown kind of post: ${kind}`);
 }

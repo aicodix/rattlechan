@@ -10,7 +10,7 @@ import { openStation } from './station.js';
 import { listen, inputs, decodeRecording } from './receiver.js';
 import { compose, split, chain, pick, secondsFor, airtime, needs, SECONDS_DEFAULT, SNR_DEFAULT, REDUNDANCY_DEFAULT } from './sender.js';
 import { output, encoderFor, play } from './transmitter.js';
-import { encodeCall } from './records.js';
+import { encodeCall, decodeText } from './records.js';
 import { openKeys } from './keys.js';
 import * as view from './render.js';
 
@@ -79,6 +79,14 @@ const [crypto, hydra] = await Promise.all([
 // the station's own keys by fingerprint, filled by fillKeys()
 let ownKeys = new Map();
 
+// what the page knows about a key: an own key says who it is from the key
+// list, before any post has
+function keyInfo(key) {
+	const info = station.keyInfo(key);
+	const own = ownKeys.get(key);
+	return own ? { ...info, own: true, callSign: own.callSign, name: own.name } : { ...info, own: false };
+}
+
 // what the log shows, newest last: () => element, so it can be drawn
 // again when trust changes what an entry looks like
 let items = [];
@@ -114,11 +122,7 @@ async function restart() {
 // asking before trusting, then moving the key's frames
 view.configure({
 	// an own key says who it is from the key list, before any post has
-	keyInfo: (key) => {
-		const info = station.keyInfo(key);
-		const own = ownKeys.get(key);
-		return own ? { ...info, own: true, callSign: own.callSign, name: own.name } : { ...info, own: false };
-	},
+	keyInfo: (key) => keyInfo(key),
 	trust: async (key, on) => {
 		if (on && !await view.confirmTrust(key))
 			return;
@@ -680,6 +684,7 @@ function setKind(k) {
 	for (const b of document.querySelectorAll('.segmented [role=radio]'))
 		b.setAttribute('aria-checked', b.dataset.kind === k);
 	$('subject-field').hidden = k !== 'topic';
+	$('to-field').hidden = k !== 'topic';
 	$('reply-to').hidden = k !== 'reply' || !replyTo;
 	$('reply-hint').hidden = k !== 'reply' || !!replyTo;
 	if (replyTo)
@@ -689,6 +694,69 @@ function setKind(k) {
 
 for (const b of document.querySelectorAll('.segmented [role=radio]'))
 	b.onclick = () => setKind(b.dataset.kind);
+
+// where a Topic goes: everyone, or a call sign, key, name or board
+const TO = {
+	call: ['Call sign', 'Anyone may answer; their key becomes known when they do. Call signs get reassigned, so prefer a key once you know it.'],
+	key: ['Key', 'The only reliable direct conversation: by default only that key\'s replies show. Pick a key from your log, or paste its 64 hex characters.'],
+	name: ['Name', 'Names aren\'t unique, so the recipient sees it as "maybe for you".'],
+	group: ['Board', 'A group name works like a channel: anyone can post to it.'],
+};
+
+// the keys seen in the log, to pick from
+function fillKnownKeys() {
+	$('known-keys').replaceChildren(...station.seen().map((k) => {
+		const info = keyInfo(k.key);
+		const name = info.name && (typeof info.name === 'string' ? info.name : decodeText(info.name));
+		const o = view.el('option', [info.own ? 'your key' : info.trusted ? 'trusted' : null, info.callSign, name, k.key.slice(0, 8)].filter(Boolean).join(' · '));
+		o.value = k.key;
+		return o;
+	}));
+}
+
+function setTo() {
+	const to = $('to-kind').value;
+	$('to-value-field').hidden = !to;
+	$('to-hint').hidden = !to;
+	if (to) {
+		$('to-value-label').textContent = TO[to][0];
+		$('to-hint').textContent = TO[to][1];
+	}
+	$('to-value').autocapitalize = to === 'call' ? 'characters' : 'off';
+	if (to === 'key') {
+		fillKnownKeys();
+		$('to-value').setAttribute('list', 'known-keys');
+	} else {
+		$('to-value').removeAttribute('list');
+	}
+	estimate();
+}
+
+$('to-kind').onchange = () => {
+	$('to-value').value = '';
+	setTo();
+	$('to-value').focus();
+};
+$('to-value').oninput = estimate;
+
+// the address of a Topic as compose() takes it, or { why }
+function address() {
+	const to = $('to-kind').value;
+	const v = $('to-value').value.trim();
+	if (!to)
+		return { to: null };
+	if (!v)
+		return { why: `Who is it for? Enter a ${TO[to][0].toLowerCase()}.` };
+	if (to === 'call') {
+		const call = v.toUpperCase();
+		return validCall(call) ? { to: { call } } : { why: 'A call sign is up to 9 of A-Z, 0-9, - and /.' };
+	}
+	if (to === 'key') {
+		const h = v.toLowerCase().replace(/\s+/g, '');
+		return /^[0-9a-f]{64}$/.test(h) ? { to: { key: fromHex(h) } } : { why: 'A key is 64 hex characters.' };
+	}
+	return { to: to === 'name' ? { name: v } : { group: v } };
+}
 
 // the post as it stands, signed, or null with the reason
 async function draft() {
@@ -707,11 +775,14 @@ async function draft() {
 		return { why: 'A topic needs a subject.' };
 	if (kind === 'reply' && !replyTo)
 		return { why: 'Pick a post to reply to.' };
+	const where = kind === 'topic' ? address() : { to: null };
+	if (where.why)
+		return { why: where.why };
 	const payload = compose({
 		kind, subject: $('subject').value.trim(), text, parent: replyTo,
 		// the key's call sign and name only when asked for: they cost bytes,
 		// and stations remember them from earlier posts
-		callSign: introduce ? k.callSign : null, name: introduce ? k.name : null,
+		callSign: introduce ? k.callSign : null, name: introduce ? k.name : null, to: where.to,
 		sign: await keys.signer(k.key),
 	});
 	return { payload, o };
@@ -827,6 +898,9 @@ $('send-button').onclick = async () => {
 			$('text').value = '';
 			$('subject').value = '';
 			$('introduce').checked = false;
+			$('to-kind').value = '';
+			$('to-value').value = '';
+			setTo();
 			replyTo = null;
 			setKind(kind === 'reply' ? 'topic' : kind);
 		}

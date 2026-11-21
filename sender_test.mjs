@@ -73,6 +73,26 @@ check('message: From-Call', p[0].prefixes[0].handle, 'DL1ABC');
 	}
 }
 
+// addressed Topics: From before To, as the ordering rule asks
+{
+	const key = Uint8Array.from({ length: 32 }, (_, i) => 255 - i);
+	const cases = [
+		[{ call: 'PA3XYZ' }, R.T.TO_CALL, (h) => h === 'PA3XYZ'],
+		[{ name: 'Jan' }, R.T.TO_NAME, (h) => R.decodeText(h) === 'Jan'],
+		[{ key }, R.T.TO_KEY, (h) => hex(h) === hex(key)],
+		[{ group: 'weather' }, R.T.TO_GROUP_NAME, (h) => R.decodeText(h) === 'weather'],
+	];
+	for (const [to, type, ok] of cases) {
+		const q = R.parse(compose({ kind: 'topic', subject: 'Hi', text: 'Direct', callSign: 'DL1ABC', name: 'Anna', to }));
+		const last = q[0].prefixes[q[0].prefixes.length - 1];
+		check(`to ${Object.keys(to)[0]}: From, From, To`, q[0].prefixes.map((x) => x.type).join(), [R.T.FROM_CALL, R.T.FROM_NAME, type].join());
+		check(`to ${Object.keys(to)[0]}: handle`, ok(last.handle), true);
+	}
+	check('to nobody: no To prefix', R.parse(compose({ kind: 'topic', subject: 'Hi', text: 'All', to: null }))[0].prefixes.length, 0);
+	throws('a Reply to an address', () => compose({ kind: 'reply', parent, text: 'x', to: { call: 'PA3XYZ' } }));
+	throws('an unknown address', () => compose({ kind: 'topic', subject: 'x', text: 'x', to: { fax: '123' } }));
+}
+
 throws('no text', () => compose({ kind: 'message', text: '' }));
 throws('topic without subject', () => compose({ kind: 'topic', text: 'x' }));
 throws('reply without parent', () => compose({ kind: 'reply', text: 'x' }));
