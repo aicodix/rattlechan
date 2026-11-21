@@ -33,7 +33,41 @@
 		<p id="log-more" class="dim" hidden></p>
 	</section>
 
+	<section id="send" class="tab" hidden>
+		<div class="segmented" role="radiogroup" aria-label="kind of post">
+			<button role="radio" data-kind="topic" aria-checked="true">Topic</button>
+			<button role="radio" data-kind="reply" aria-checked="false">Reply</button>
+			<button role="radio" data-kind="message" aria-checked="false">Message</button>
+		</div>
+		<p id="reply-to" hidden></p>
+		<p id="reply-hint" class="dim" hidden>Tap Reply on a post in the log to answer it.</p>
+		<label class="field" id="subject-field">Subject <input id="subject" autocomplete="off" dir="auto"></label>
+		<label class="field">Text <textarea id="text" rows="6" dir="auto"></textarea></label>
+		<p id="send-info" class="dim"></p>
+		<fieldset id="send-choice" class="choice" hidden>
+			<legend>It doesn't fit in one frame at these settings. Send it as</legend>
+			<label><input type="radio" name="how" value="fragments" checked> <span id="choice-fragments"></span></label>
+			<label><input type="radio" name="how" value="longer"> <span id="choice-longer"></span></label>
+		</fieldset>
+		<div class="row">
+			<button id="send-button" class="primary" disabled>Send</button>
+			<button id="send-stop" hidden>Stop</button>
+		</div>
+		<p id="send-status" class="dim"></p>
+	</section>
+
 	<section id="station" class="tab" hidden>
+		<h2>Your station</h2>
+		<label class="field">Call sign <input id="call-sign" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="9" placeholder="none"></label>
+		<label class="field">Name <input id="name" autocomplete="off" dir="auto" placeholder="none"></label>
+		<p class="dim">Sent in the preamble of every frame, and as From-Call and From-Name in topics and messages. Without a call sign, frames go out as ANONYMOUS.</p>
+		<div class="row">
+			<label class="field inline">Seconds per frame <input id="frame-seconds" type="number" min="1" max="60" step="1" inputmode="numeric"></label>
+			<label class="field inline">SNR threshold (dB) <input id="snr" type="number" min="1" max="30" step="0.5" inputmode="decimal"></label>
+			<label class="field inline">Extra blocks (%) <input id="redundancy" type="number" min="0" max="100" step="5" inputmode="numeric"></label>
+		</div>
+		<p class="dim">Frames only use modes that decode at the SNR threshold. A post that doesn't fit in one frame goes out either as one longer frame or as fragments with that many extra blocks, in one seamless transmission. The radio is keyed by VOX.</p>
+
 		<h2>Receiver</h2>
 		<div class="row">
 			<button id="listen" class="primary">Listen</button>
@@ -83,6 +117,7 @@
 
 <nav role="tablist">
 	<button role="tab" data-tab="log" aria-selected="true">Log</button>
+	<button role="tab" data-tab="send" aria-selected="false">Send</button>
 	<button role="tab" data-tab="station" aria-selected="false">Station</button>
 </nav>
 

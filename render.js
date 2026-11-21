@@ -46,7 +46,8 @@ const fixed = (v, scale, digits) => (v / scale).toFixed(digits);
 // What the page knows about keys, set by the app with configure():
 //   keyInfo(hex) -> { trusted, callSign, name, avatar }
 //   trust(hex, on) is called when the user asks to trust or not
-let station = { keyInfo: (key) => ({ key, trusted: false }), trust: () => {} };
+//   reply(id) when the user wants to answer a post
+let station = { keyInfo: (key) => ({ key, trusted: false }), trust: () => {}, reply: () => {} };
 export const configure = (s) => {
 	station = s;
 };
@@ -357,6 +358,11 @@ function post(n, key) {
 	const e = el('div.post', head,
 		el('div.dim', when(n.timestamp * 1000), n.id ? ` · ${short(n.id)}` : ''),
 		...n.parts.map((p) => leaf(p, key)));
+	if (n.id && !n.dropped) {
+		const b = el('button.small.reply', 'Reply');
+		b.onclick = () => station.reply(n.id);
+		e.append(el('div.post-actions', b));
+	}
 	return e;
 }
 
@@ -414,7 +420,7 @@ export function entry(e) {
 	if (e.bitFlips)
 		info.push(`${e.bitFlips} bit flips`);
 	const box = el('article.entry', head(e.arrival, e.callSign, el('span.dim', ` ${info.join(' · ')}`),
-		e.error ? el('span.badge.bad', 'dropped') : e.tier ? el('span.badge', e.tier) : el('span.badge.dim', 'not kept')));
+		e.error ? el('span.badge.bad', 'dropped') : e.tier ? el('span.badge', e.sent ? `sent · ${e.tier}` : e.tier) : el('span.badge.dim', 'not kept')));
 	if (e.error) {
 		box.append(el('div.bad', `malformed: ${e.error}`));
 	} else {

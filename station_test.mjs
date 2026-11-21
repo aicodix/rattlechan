@@ -180,6 +180,29 @@ check('bad block dropped', typeof (await S.receive(bad)).error, 'string');
 	check('import: precious after replay', (await st2.frames('precious')).length, (await st.frames('precious')).length);
 }
 
+// ----------------------------------------------------------- own frames
+
+{
+	const st = await openStore(memoryBackend(), { now: () => ++clock });
+	const S1 = await openStation({ store: st, crypto: C, hydra: H });
+	const mine = R.payload([R.fromCall('DL1ABC'), R.textUTF8('my own')]);
+	const e = await S1.sent(mine, { callSign: 'DL1ABC', mode: 64 });
+	check('sent: precious', e.tier, 'precious');
+	check('sent: marked', e.sent, true);
+	check('sent: own list stored', (await st.getData('own')).frames[0], e.hash);
+	const other = await S1.receive(R.payload([R.textUTF8('not mine')]));
+	check('received: not marked', other.sent, false);
+	check('received: logged', other.tier, 'logged');
+	const S2 = await openStation({ store: st, crypto: C, hydra: H });
+	const again = await S2.replay();
+	check('replay: own frame stays precious', again.find((x) => x.sent)?.tier, 'precious');
+	check('replay: one own frame', again.filter((x) => x.sent).length, 1);
+	await st.removeFrame(e.name);
+	const S3 = await openStation({ store: st, crypto: C, hydra: H });
+	await S3.replay();
+	check('replay: evicted own frames are forgotten', (await st.getData('own')).frames.length, 0);
+}
+
 console.log(failed ? `${failed} of ${checks} checks failed` : `all ${checks} checks passed`);
 if (failed)
 	process.exit(1);

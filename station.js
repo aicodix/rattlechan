@@ -9,12 +9,14 @@
 // Trust (SPEC.md, Client policy): the user trusts keys by hand; the list
 // is data/trust.json. A frame is precious when it holds a post or an
 // Avatar under a verified signature of a trusted key, directly or in the
-// payload its Fragments reassemble to; everything else is logged. A key's
+// payload its Fragments reassemble to, and the station's own frames (by
+// their BLAKE2s hash in data/own.json); everything else is logged. A key's
 // call sign, name and avatar are learned from its verified signed Topics
 // and Avatars, newest arrival first, and only shown once it is trusted.
 
 import { parse, walk, MalformedError, T } from './records.js';
 import { Reassembler } from './hydra.js';
+import { blake2s } from './blake2s.js';
 
 export const hex = (a) => Array.from(a, (b) => b.toString(16).padStart(2, '0')).join('');
 
@@ -76,6 +78,8 @@ export async function openStation({ store, crypto = null, hydra = null }) {
 	};
 	const trustData = await store.getData('trust') ?? {};
 	const trusted = new Set(trustData.trusted ?? []);
+	const own = new Set((await store.getData('own'))?.frames ?? []);
+	const saveOwn = () => store.putData('own', { frames: [...own].sort() });
 
 	// key hex -> { key, callSign, name, avatar, avatarFrame, arrival }
 	const keys = new Map();
@@ -177,7 +181,7 @@ export async function openStation({ store, crypto = null, hydra = null }) {
 				add(s.facts);
 		return out;
 	};
-	const precious = (e) => [...keysIn(e)].some((k) => trusted.has(k));
+	const precious = (e) => own.has(e.hash) || [...keysIn(e)].some((k) => trusted.has(k));
 
 	const rename = (e, name) => {
 		frames.delete(e.name);
@@ -216,8 +220,11 @@ export async function openStation({ store, crypto = null, hydra = null }) {
 
 	const entry = (bytes, meta) => {
 		const a = analyze(bytes);
+		const hash = hex(blake2s(bytes));
 		return {
 			...meta,
+			hash,
+			sent: own.has(hash),
 			size: bytes.length,
 			...a,
 			facts: a.nodes ? facts(a.nodes) : null,
@@ -253,6 +260,23 @@ export async function openStation({ store, crypto = null, hydra = null }) {
 		return e;
 	};
 
+	// A frame this station sent: stored as sent, in the precious tier, and
+	// marked as its own so it stays there. Returns the entry.
+	const sent = async (bytes, { arrival = Date.now(), callSign = null, mode = null } = {}) => {
+		const e = entry(bytes, { arrival, callSign, mode, name: null, tier: null });
+		all.push(e);
+		if (e.error)
+			return e;
+		own.add(e.hash);
+		e.sent = true;
+		await saveOwn();
+		e.name = await store.addFrame(bytes, { tier: 'precious', arrival, callSign, mode });
+		e.tier = e.name && 'precious';
+		register(e);
+		learn(e);
+		return e;
+	};
+
 	// The entries of all stored frames, oldest arrival first, reassembling
 	// and learning as they come; frames are then moved to the tier the
 	// current trust list puts them in (it may come from an import)
@@ -267,6 +291,14 @@ export async function openStation({ store, crypto = null, hydra = null }) {
 			learn(e);
 		}
 		await retier();
+		// forget own frames that were evicted
+		const kept = new Set(all.map((e) => e.hash));
+		if ([...own].some((h) => !kept.has(h))) {
+			for (const h of [...own])
+				if (!kept.has(h))
+					own.delete(h);
+			await saveOwn();
+		}
 		return all;
 	};
 
@@ -288,5 +320,5 @@ export async function openStation({ store, crypto = null, hydra = null }) {
 	// sets of Fragments still waiting for blocks
 	const waiting = () => reassembler ? reassembler.missing() : [];
 
-	return { analyze, receive, replay, waiting, entries: () => all, keyInfo, setTrust, isTrusted: (k) => trusted.has(k) };
+	return { analyze, receive, sent, replay, waiting, entries: () => all, keyInfo, setTrust, isTrusted: (k) => trusted.has(k) };
 }

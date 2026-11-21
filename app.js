@@ -1,5 +1,6 @@
-// The page: tabs, the log of everything received, and the station's
-// receiver and storage. The work is done in station.js and receiver.js.
+// The page: tabs, the log of everything received and sent, sending, and
+// the station's settings, receiver and storage. The work is done in
+// station.js, sender.js, receiver.js and transmitter.js.
 
 import { opfsBackend, memoryBackend, openStore, TIERS } from './storage.js';
 import { exportArchive, importArchive } from './archive.js';
@@ -7,6 +8,9 @@ import { loadCrypto } from './crypto.js';
 import { loadHydra } from './hydra.js';
 import { openStation } from './station.js';
 import { listen, inputs, decodeRecording } from './receiver.js';
+import { compose, split, chain, pick, secondsFor, airtime, needs, SECONDS_DEFAULT, SNR_DEFAULT, REDUNDANCY_DEFAULT } from './sender.js';
+import { output, encoderFor, play } from './transmitter.js';
+import { encodeCall } from './records.js';
 import * as view from './render.js';
 
 const $ = (id) => document.getElementById(id);
@@ -113,6 +117,12 @@ view.configure({
 		redraw();
 		refreshStorage();
 	},
+	reply: (id) => {
+		replyTo = id;
+		setKind('reply');
+		showTab('send');
+		$('text').focus();
+	},
 });
 
 await restart();
@@ -209,6 +219,9 @@ async function startListening() {
 		receiver = await listen({
 			deviceId: $('input').value || recall('input') || null,
 			onReport: (r) => {
+				// the station doesn't listen to itself
+				if (Date.now() < deafUntil)
+					return;
 				level(r.peak);
 				if (r.events.length) {
 					enqueue(r.events);
@@ -415,4 +428,222 @@ $('install').onclick = async () => {
 	$('install').hidden = true;
 };
 
-showTab(recall('tab') === 'station' ? 'station' : 'log');
+// ----------------------------------------------------------------- sending
+
+// the station's own settings: call sign, name, seconds per frame, SNR
+// threshold, extra blocks
+const own = async () => {
+	const s = (await store.settings()).station ?? {};
+	return {
+		callSign: s.callSign ?? '',
+		name: s.name ?? '',
+		seconds: s.seconds ?? SECONDS_DEFAULT,
+		snr: s.snr ?? SNR_DEFAULT,
+		redundancy: s.redundancy ?? REDUNDANCY_DEFAULT,
+	};
+};
+
+async function fillOwn() {
+	const o = await own();
+	$('call-sign').value = o.callSign;
+	$('name').value = o.name;
+	$('frame-seconds').value = o.seconds;
+	$('snr').value = o.snr;
+	$('redundancy').value = Math.round(o.redundancy * 100);
+}
+
+const validCall = (c) => {
+	try {
+		encodeCall(c);
+		return /^[A-Z0-9/-]{1,9}$/.test(c);
+	} catch {
+		return false;
+	}
+};
+
+async function saveOwn() {
+	const call = $('call-sign').value.trim().toUpperCase();
+	$('call-sign').value = call;
+	const ok = !call || validCall(call);
+	$('call-sign').setCustomValidity(ok ? '' : 'up to 9 of A-Z, 0-9, - and /');
+	$('call-sign').reportValidity();
+	const seconds = Math.min(60, Math.max(1, Math.round(Number($('frame-seconds').value) || SECONDS_DEFAULT)));
+	const redundancy = Math.min(1, Math.max(0, (Number($('redundancy').value) || 0) / 100));
+	const snr = Math.min(30, Math.max(1, Number($('snr').value) || SNR_DEFAULT));
+	const old = await own();
+	await store.setSettings({ station: { callSign: ok ? call : old.callSign, name: $('name').value.trim(), seconds, snr, redundancy } });
+	await fillOwn();
+	estimate();
+}
+
+for (const id of ['call-sign', 'name', 'frame-seconds', 'snr', 'redundancy'])
+	$(id).onchange = saveOwn;
+
+let kind = 'topic';
+let replyTo = null;
+// receiving pauses while sending and a moment after, so the station
+// doesn't decode its own signal from the microphone
+let deafUntil = 0;
+let sending = null;
+
+function setKind(k) {
+	kind = k;
+	for (const b of document.querySelectorAll('.segmented [role=radio]'))
+		b.setAttribute('aria-checked', b.dataset.kind === k);
+	$('subject-field').hidden = k !== 'topic';
+	$('reply-to').hidden = k !== 'reply' || !replyTo;
+	$('reply-hint').hidden = k !== 'reply' || !!replyTo;
+	if (replyTo)
+		$('reply-to').replaceChildren('Reply to ', view.el('span.key', view.short(replyTo)));
+	estimate();
+}
+
+for (const b of document.querySelectorAll('.segmented [role=radio]'))
+	b.onclick = () => setKind(b.dataset.kind);
+
+// the post as it stands, or null with the reason
+async function draft() {
+	const o = await own();
+	const text = $('text').value;
+	if (!text.trim())
+		return { why: 'Write something.' };
+	if (kind === 'topic' && !$('subject').value.trim())
+		return { why: 'A topic needs a subject.' };
+	if (kind === 'reply' && !replyTo)
+		return { why: 'Pick a post to reply to.' };
+	const payload = compose({
+		kind, subject: $('subject').value.trim(), text, parent: replyTo,
+		callSign: o.callSign || null, name: o.name || null,
+	});
+	return { payload, o };
+}
+
+// what the post would take on the air, updated while typing
+let estimating = 0;
+async function estimate() {
+	const mine = ++estimating;
+	await new Promise((r) => setTimeout(r, 250));
+	if (mine !== estimating)
+		return;
+	let d;
+	try {
+		d = await draft();
+	} catch (err) {
+		d = { why: err.message };
+	}
+	$('send-button').disabled = !d.payload || !!sending;
+	if (!d.payload) {
+		$('send-info').textContent = d.why;
+		return;
+	}
+	// the modes are the same at both rates, so the estimate uses 48000
+	const E = await encoderFor(48000);
+	const anon = d.o.callSign ? '' : ' Sent as ANONYMOUS.';
+	const describe = (p) => {
+		const info = E.modeInfo(p.modes[0]);
+		return `${info.modulation} ${info.codeRate}, decodes from ${needs(p.modes[0])} dB`;
+	};
+	const fits = pick(E, d.payload.length, d.o) !== null;
+	$('send-choice').hidden = fits;
+	if (fits) {
+		const p = plan(E, d, 'fragments');
+		$('send-info').textContent = `${view.bytes(d.payload.length)} in one frame of ${p.airtime.toFixed(1)} s, ${describe(p)}.${anon}`;
+		return;
+	}
+	$('send-info').textContent = `${view.bytes(d.payload.length)}.${anon}`;
+	const choice = (how, span, label) => {
+		const radio = document.querySelector(`input[name=how][value=${how}]`);
+		try {
+			const p = plan(E, d, how);
+			radio.disabled = false;
+			$(span).textContent = label(p);
+		} catch (err) {
+			radio.disabled = true;
+			$(span).textContent = err.message;
+		}
+	};
+	choice('fragments', 'choice-fragments', (p) => `${p.frames.length} fragments of ${E.modeInfo(p.modes[0]).seconds.toFixed(1)} s, any ${p.K} of them enough, ${p.airtime.toFixed(1)} s in all, ${describe(p)}`);
+	choice('longer', 'choice-longer', (p) => `one frame of ${p.airtime.toFixed(1)} s, ${describe(p)}`);
+	const radios = [...document.querySelectorAll('input[name=how]')];
+	if (radios.find((r) => r.checked)?.disabled)
+		radios.find((r) => !r.disabled)?.click();
+	$('send-button').disabled = !d.payload || !!sending || radios.every((r) => r.disabled);
+}
+
+// How a draft goes on the air, at the settings or, with how = 'longer', in
+// one frame as long as it needs. Returns what split() gives, with the
+// seconds and SNR used, the modes and the airtime.
+function plan(E, d, how) {
+	const { snr, redundancy } = d.o;
+	let seconds = d.o.seconds;
+	if (how === 'longer') {
+		seconds = secondsFor(E, d.payload.length, snr);
+		if (seconds === null)
+			throw new RangeError(`too long for one frame at ${snr} dB`);
+	}
+	const s = split(d.payload, { encoder: E, hydra, seconds, snr, redundancy });
+	const lengths = s.frames.map((f) => f.length);
+	return { ...s, seconds, snr, modes: lengths.map((n) => pick(E, n, { seconds, snr })), airtime: airtime(E, lengths, { seconds, snr }) };
+}
+
+for (const r of document.querySelectorAll('input[name=how]'))
+	r.onchange = estimate;
+
+// typing starts the next post
+const typed = () => {
+	if (!sending)
+		$('send-status').textContent = '';
+	estimate();
+};
+$('subject').oninput = typed;
+$('text').oninput = typed;
+
+$('send-button').onclick = async () => {
+	$('send-button').disabled = true;
+	try {
+		const d = await draft();
+		if (!d.payload)
+			throw new Error(d.why);
+		const ctx = await output();
+		const E = await encoderFor(ctx.sampleRate);
+		const callSign = d.o.callSign || 'ANONYMOUS';
+		const how = document.querySelector('input[name=how]:checked')?.value ?? 'fragments';
+		const s = plan(E, d, pick(E, d.payload.length, d.o) !== null ? 'fragments' : how);
+		const c = chain(E, s.frames, { seconds: s.seconds, snr: s.snr, callSign });
+		// the station's own frames, kept as sent
+		const arrival = Date.now();
+		for (const [i, f] of s.frames.entries()) {
+			const e = await station.sent(f, { arrival, callSign: d.o.callSign || null, mode: c.modes[i] });
+			add(() => view.entry(e));
+		}
+		deafUntil = Infinity;
+		sending = play(ctx, c.audio);
+		$('send-stop').hidden = false;
+		$('send-status').textContent = `Sending ${s.frames.length === 1 ? 'one frame' : `${s.frames.length} fragments`}, ${c.seconds.toFixed(1)} s …`;
+		status('sending', 'ok');
+		const complete = await sending.done;
+		$('send-status').textContent = complete ? 'Sent.' : 'Stopped.';
+		if (complete) {
+			$('text').value = '';
+			$('subject').value = '';
+			replyTo = null;
+			setKind(kind === 'reply' ? 'topic' : kind);
+		}
+	} catch (err) {
+		$('send-status').textContent = `Can't send: ${err.message}`;
+	}
+	sending = null;
+	deafUntil = Date.now() + 1500;
+	$('send-stop').hidden = true;
+	status(receiver ? 'listening' : 'not listening');
+	refreshStorage();
+	estimate();
+};
+
+$('send-stop').onclick = () => sending?.stop();
+
+await fillOwn();
+setKind('topic');
+
+const startTab = recall('tab');
+showTab(['station', 'send'].includes(startTab) ? startTab : 'log');

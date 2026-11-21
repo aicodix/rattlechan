@@ -156,6 +156,37 @@ button:disabled { opacity: 0.5; }
 
 select { min-width: 0; flex: 1; }
 
+/* the kind of post: one button group */
+.segmented { display: flex; margin: 8px 0 12px; }
+.segmented button { flex: 1; border-radius: 0; margin-left: -1px; }
+.segmented button:first-child { border-radius: 8px 0 0 8px; margin-left: 0; }
+.segmented button:last-child { border-radius: 0 8px 8px 0; }
+.segmented button[aria-checked="true"] { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 600; }
+
+.field { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; color: var(--dim); font-size: 14px; }
+.field[hidden] { display: none; }
+.field input, .field textarea { color: var(--fg); font-size: 16px; }
+.field.inline { flex: 1; min-width: 9em; margin: 0; }
+textarea {
+	font: inherit;
+	color: var(--fg);
+	background: var(--card);
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	padding: 8px 12px;
+	resize: vertical;
+	min-height: 120px;
+}
+input:invalid { border-color: var(--bad); }
+
+fieldset.choice { border: 1px solid var(--line); border-radius: 8px; margin: 8px 0; padding: 8px 12px; }
+fieldset.choice legend { color: var(--dim); font-size: 14px; padding: 0 4px; }
+fieldset.choice label { display: flex; gap: 8px; align-items: baseline; padding: 6px 0; }
+fieldset.choice input { min-height: 0; accent-color: var(--accent); }
+fieldset.choice label:has(input:disabled) { color: var(--dim); }
+
+.post-actions { display: flex; justify-content: flex-end; }
+
 .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
 
 .file { display: inline-flex; align-items: center; cursor: pointer; }
