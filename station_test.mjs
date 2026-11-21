@@ -45,12 +45,12 @@ check('the post inside', R.decodeText(e.nodes[0].children[0].text), 'Hello from 
 check('no fragments', e.fragments.length, 0);
 check('stored as received', hex(await store.readFrame(e.name)), hex(frame));
 
-// a bad signature drops the Signed record, not the frame
+// a bad signature usually means corruption: the frame is dropped
 const forged = frame.slice();
 forged[60] ^= 1;
 e = await S.receive(forged, { callSign: 'DL1ABC' });
-check('forged: kept', e.name !== null, true);
-check('forged: Signed dropped', e.nodes[0].dropped, 'signature');
+check('forged: dropped', e.error, 'bad signature at offset 0');
+check('forged: not stored', e.name, null);
 
 // malformed frames are dropped and never stored
 const before = (await store.frames()).length;

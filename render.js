@@ -361,7 +361,6 @@ function post(n, key) {
 }
 
 const DROPPED = {
-	signature: 'bad signature, dropped',
 	'must-understand': 'needs a newer client, dropped',
 	empty: 'empty post, dropped',
 };

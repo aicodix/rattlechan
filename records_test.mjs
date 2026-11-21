@@ -330,10 +330,11 @@ check('Request-Root is 19 or 35 bytes', R.requestRoot(1, fill(16, 0)).length + '
 	let p = parses('Signed without verify', R.payload([forged]));
 	check('Signed without CRYPTO is unverified', p[0].verified, null);
 	check('Signed without CRYPTO is still parsed', p[0].children.length, 1);
-	p = parses('bad signature', R.payload([forged, good]), { verify: fakeVerify });
-	check('bad signature drops that Signed', p[0].dropped, 'signature');
-	check('bad signature skips the inside', p[0].children, undefined);
-	check('good signature next to it', p[1].verified, true);
+	malformed('bad signature drops the frame', R.payload([forged, good]), { verify: fakeVerify });
+	malformed('bad signature after a good one', R.payload([good, forged]), { verify: fakeVerify });
+	malformed('bad inner signature under a good one', R.payload([R.signWith(fakeSign(group), group, forged)]), { verify: fakeVerify });
+	p = parses('good signature', R.payload([good]), { verify: fakeVerify });
+	check('good signature verifies', p[0].verified, true);
 
 	const endorsed = R.signWith(fakeSign(group), group, good);
 	p = parses('nested Signed', R.payload([endorsed]), { verify: fakeVerify });

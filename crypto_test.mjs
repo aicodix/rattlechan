@@ -27,6 +27,16 @@ function throws(name, fn) {
 	} catch {}
 }
 
+// whether parsing throws because of a bad signature
+function badSignature(payload) {
+	try {
+		R.parse(payload, { verify: C.verify });
+		return false;
+	} catch (e) {
+		return e instanceof R.MalformedError && e.message.startsWith('bad signature');
+	}
+}
+
 const wasmBytes = await readFile(new URL('./crypto.wasm', import.meta.url));
 const C = await loadCrypto(wasmBytes);
 
@@ -132,8 +142,7 @@ for (const [key, pub, sigs] of keys) {
 
 	const forged = frame.slice();
 	forged[2 + 96 + 3] ^= 1; // a byte of the call sign inside
-	p = R.parse(forged, { verify: C.verify });
-	check('changed content fails', p[0].dropped, 'signature');
+	check('changed content drops the frame', badSignature(forged), true);
 
 	const endorsed = R.payload([C.signRecords(bob, C.signRecords(alice, post))]);
 	p = R.parse(endorsed, { verify: C.verify });
@@ -141,9 +150,9 @@ for (const [key, pub, sigs] of keys) {
 	check('endorsed post ID uses the author', hex(p[0].children[0].children[0].id), hex(R.postId(post, alicePub)));
 
 	const signedByBob = R.signed(alicePub, C.sign(bob, R.signingMessage(post)), post);
-	check('signature by another key fails', R.parse(signedByBob, { verify: C.verify })[0].dropped, 'signature');
+	check('signature by another key drops the frame', badSignature(signedByBob), true);
 	const noContext = R.signed(alicePub, C.sign(alice, post), post);
-	check('signature without CONTEXT fails', R.parse(noContext, { verify: C.verify })[0].dropped, 'signature');
+	check('signature without CONTEXT drops the frame', badSignature(noContext), true);
 
 	const { retired, compromised } = C.revocations(alice);
 	check('revocation is 99 bytes', retired.length + ',' + compromised.length, '99,99');

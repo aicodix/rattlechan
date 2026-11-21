@@ -549,11 +549,10 @@ function parseRecord(buf, node, ctx) {
 		node.sig = node.body.subarray(32, 96);
 		node.inner = node.body.subarray(96);
 		if (ctx.opts.verify) {
+			// a bad signature usually means corruption, so the frame goes
 			node.verified = !!ctx.opts.verify(node.key, node.sig, signingMessage(node.inner));
-			if (!node.verified) {
-				node.dropped = 'signature';
-				return;
-			}
+			if (!node.verified)
+				bad('bad signature');
 		} else {
 			node.verified = null;
 		}
@@ -709,10 +708,11 @@ function parseRecords(buf, pos, end, ctx) {
 
 // Parse a payload into a tree of record nodes. Throws MalformedError when
 // the frame has to be dropped. Narrower drops are marked on the node:
-// dropped = 'signature' | 'must-understand' | 'empty'.
+// dropped = 'must-understand' | 'empty'.
 // Options:
-//   verify(key, sig, message) -> boolean, CRYPTO's Ed25519 check; without
-//     it Signed records are parsed and marked verified = null
+//   verify(key, sig, message) -> boolean, CRYPTO's Ed25519 check; a bad
+//     signature drops the frame, without it Signed records are parsed and
+//     marked verified = null
 //   verifyBlock(block) -> boolean, HYDRA's verify_block; a Fragment that
 //     fails it drops the frame, without it Fragments are verified = null
 //   reassembled: true for a payload decoded from Fragments, which must not
