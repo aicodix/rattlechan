@@ -49,10 +49,12 @@ Early. The protocol is a v0 draft in [SPEC.md](SPEC.md) and will change while th
 * [robusto_test.mjs](robusto_test.mjs): encoder to decoder in Node.js, every short mode, pings, noise and odd chunk sizes, run with `node robusto_test.mjs`
 * [station.js](station.js): what the station does with a received frame: parse, check signatures, reassemble Fragments, learn about keys, store in the tier trust puts it in, and replay the stored frames at startup
 * [station_test.mjs](station_test.mjs): frames through the station into a store in memory, run with `node station_test.mjs`
-* [index.html](index.html), [app.js](app.js), [app.css](app.css), [render.js](render.js): the GUI: a log of everything received and sent, sending unsigned posts, and the station's settings, receiver and storage; serve the directory with `python3 -m http.server` and open it
+* [index.html](index.html), [app.js](app.js), [app.css](app.css), [render.js](render.js): the GUI: a log of everything received and sent, sending signed posts, the station's keys, and the station's settings, receiver and storage; serve the directory with `python3 -m http.server` and open it
 * [render_test.mjs](render_test.mjs): what render.js does without a document, such as telling animated WebP apart and identicons, run with `node render_test.mjs`
 * [sender.js](sender.js): sending: a post as records, in one frame or as Fragments with extra blocks, only in modes that decode at the chosen SNR, chained into one seamless transmission
 * [sender_test.mjs](sender_test.mjs): posts composed, split, chained and decoded again with the real modem and HYDRA, run with `node sender_test.mjs`
+* [keys.js](keys.js): the station's own signing keys in the secrets: generated or imported, each with its label, From-Call, From-Name and both revocations
+* [keys_test.mjs](keys_test.mjs): keys in a store in memory, their revocations, signing and the secrets archive, run with `node keys_test.mjs`
 * [transmitter.js](transmitter.js): plays a transmission out of the default output
 * [receiver.js](receiver.js), [capture_worklet.js](capture_worklet.js), [decoder_worker.js](decoder_worker.js): microphone to AudioWorklet to the ROBUSTO decoder in a worker, and decoding recordings
 * [manifest.webmanifest](manifest.webmanifest), [sw.js](sw.js), [icon.svg](icon.svg), icon-180.png, icon-192.png, icon-512.png: what makes it an installable web app that works offline

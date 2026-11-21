@@ -6,6 +6,7 @@ import { readFile } from 'node:fs/promises';
 import { compose, frameCapacity, split, chain, pick, secondsFor, airtime, needs, THRESHOLDS, SECONDS_DEFAULT, SNR_DEFAULT } from './sender.js';
 import { loadEncoder, loadDecoder } from './robusto.js';
 import { loadHydra, Reassembler } from './hydra.js';
+import { loadCrypto } from './crypto.js';
 import * as R from './records.js';
 
 const hex = (a) => a && Array.from(a, (b) => b.toString(16).padStart(2, '0')).join('');
@@ -55,6 +56,21 @@ check('reply: parent', hex(p[0].parent), hex(parent));
 p = R.parse(compose({ kind: 'message', text: 'Hungry', callSign: 'DL1ABC' }));
 check('message: bare text', R.decodeText(p[0]), 'Hungry');
 check('message: From-Call', p[0].prefixes[0].handle, 'DL1ABC');
+
+// signed: the same records inside one Signed record
+{
+	const C = await loadCrypto(await file('crypto.wasm'));
+	const priv = new Uint8Array(32).fill(7);
+	const sign = (...records) => C.signRecords(priv, ...records);
+	for (const [kind, extra] of [['topic', { subject: 'Signed' }], ['reply', { parent }], ['message', {}]]) {
+		const q = R.parse(compose({ kind, text: 'signed text', callSign: 'DL1ABC', name: 'Anna', sign, ...extra }), { verify: C.verify });
+		check(`signed ${kind}: one Signed record`, q.length === 1 && q[0].type, R.T.SIGNED);
+		check(`signed ${kind}: verifies`, q[0].verified, true);
+		const inner = q[0].children[0];
+		check(`signed ${kind}: From inside`, inner.prefixes.length, kind === 'reply' ? 0 : 2);
+		check(`signed ${kind}: ID`, kind === 'message' || inner.id !== null, true);
+	}
+}
 
 throws('no text', () => compose({ kind: 'message', text: '' }));
 throws('topic without subject', () => compose({ kind: 'topic', text: 'x' }));

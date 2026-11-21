@@ -185,6 +185,14 @@ fieldset.choice label { display: flex; gap: 8px; align-items: baseline; padding:
 fieldset.choice input { min-height: 0; accent-color: var(--accent); }
 fieldset.choice label:has(input:disabled) { color: var(--dim); }
 
+/* the station's keys */
+.key-card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 0 0 8px; }
+.key-card-head { display: flex; align-items: center; gap: 8px; }
+.key-card-head strong { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.key-card .remove-confirm[hidden] { display: none; }
+details#new-key { margin: 8px 0; }
+details#new-key summary { cursor: pointer; color: var(--accent); min-height: 44px; display: flex; align-items: center; }
+
 .post-actions { display: flex; justify-content: flex-end; }
 
 .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }

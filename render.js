@@ -44,7 +44,8 @@ function encodingOf(node) {
 const fixed = (v, scale, digits) => (v / scale).toFixed(digits);
 
 // What the page knows about keys, set by the app with configure():
-//   keyInfo(hex) -> { trusted, callSign, name, avatar }
+//   keyInfo(hex) -> { trusted, own, callSign, name, avatar }, own for the
+//     station's own keys, which are always trusted
 //   trust(hex, on) is called when the user asks to trust or not
 //   reply(id) when the user wants to answer a post
 let station = { keyInfo: (key) => ({ key, trusted: false }), trust: () => {}, reply: () => {} };
@@ -142,6 +143,8 @@ function signer(n) {
 	} else {
 		who.append('key ', el('span.key', short(n.key)));
 	}
+	if (info.own)
+		return [face(key), who, el('span.ok', 'your key')];
 	if (info.trusted)
 		who.append(' ', el('span.ok', 'trusted'));
 	const button = el('button.small.trust', info.trusted ? 'Untrust' : 'Trust');

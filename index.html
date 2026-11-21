@@ -34,6 +34,8 @@
 	</section>
 
 	<section id="send" class="tab" hidden>
+		<p id="no-keys" class="warn" hidden>Every post is signed: add a key in Station first.</p>
+		<label class="field" id="signer-field">Sign as <select id="signer"></select></label>
 		<div class="segmented" role="radiogroup" aria-label="kind of post">
 			<button role="radio" data-kind="topic" aria-checked="true">Topic</button>
 			<button role="radio" data-kind="reply" aria-checked="false">Reply</button>
@@ -59,14 +61,26 @@
 	<section id="station" class="tab" hidden>
 		<h2>Your station</h2>
 		<label class="field">Call sign <input id="call-sign" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="9" placeholder="none"></label>
-		<label class="field">Name <input id="name" autocomplete="off" dir="auto" placeholder="none"></label>
-		<p class="dim">Sent in the preamble of every frame, and as From-Call and From-Name in topics and messages. Without a call sign, frames go out as ANONYMOUS.</p>
+		<p class="dim">Sent in the preamble of every frame, for the regulators. Without one, frames go out as ANONYMOUS. Each key below carries its own From-Call and From-Name.</p>
 		<div class="row">
 			<label class="field inline">Seconds per frame <input id="frame-seconds" type="number" min="1" max="60" step="1" inputmode="numeric"></label>
 			<label class="field inline">SNR threshold (dB) <input id="snr" type="number" min="1" max="30" step="0.5" inputmode="decimal"></label>
 			<label class="field inline">Extra blocks (%) <input id="redundancy" type="number" min="0" max="100" step="5" inputmode="numeric"></label>
 		</div>
 		<p class="dim">Frames only use modes that decode at the SNR threshold. A post that doesn't fit in one frame goes out either as one longer frame or as fragments with that many extra blocks, in one seamless transmission. The radio is keyed by VOX.</p>
+
+		<h2>Keys</h2>
+		<p class="dim">Every post is signed with one of these keys, and keys held here count as trusted. Export secrets to keep them, and print the revocations of each key.</p>
+		<div id="key-list"></div>
+		<details id="new-key">
+			<summary>Add a key</summary>
+			<label class="field">Label <input id="new-label" autocomplete="off" dir="auto" placeholder="Personal"></label>
+			<label class="field">From-Call <input id="new-call" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="9" placeholder="none"></label>
+			<label class="field">From-Name <input id="new-name" autocomplete="off" dir="auto" placeholder="none"></label>
+			<label class="field">Private key to import, 64 hex characters <input id="new-private" autocomplete="off" spellcheck="false" placeholder="empty: generate a new key"></label>
+			<div class="row"><button id="new-key-button" class="primary">Add key</button></div>
+			<p id="new-key-result" class="dim"></p>
+		</details>
 
 		<h2>Receiver</h2>
 		<div class="row">

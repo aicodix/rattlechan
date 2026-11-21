@@ -29,8 +29,15 @@ export const needs = (mode) => THRESHOLDS[mode & 31];
 //   kind 'reply'    parent (32-byte post ID) and text
 //   kind 'message'  text alone, a bare message
 // A Topic and a message carry From-Call and From-Name when given; a Reply
-// can't carry prefixes (SPEC.md), so its call sign is the preamble's.
-export function compose({ kind, subject = '', text = '', parent = null, callSign = null, name = null, timestamp = Math.floor(Date.now() / 1000) }) {
+// can't carry prefixes (SPEC.md). sign(...records), as keys.js gives it,
+// wraps the records in one Signed record; without it the post is unsigned,
+// as sensors and experiments send them.
+export function compose({ kind, subject = '', text = '', parent = null, callSign = null, name = null, timestamp = Math.floor(Date.now() / 1000), sign = null }) {
+	const records = post({ kind, subject, text, parent, callSign, name, timestamp });
+	return R.payload(sign ? [sign(...records)] : records);
+}
+
+function post({ kind, subject, text, parent, callSign, name, timestamp }) {
 	if (!text)
 		throw new RangeError('a post needs text');
 	const from = [];
@@ -42,13 +49,13 @@ export function compose({ kind, subject = '', text = '', parent = null, callSign
 	case 'topic':
 		if (!subject)
 			throw new RangeError('a Topic needs a subject');
-		return R.payload([...from, R.topic(timestamp, smallestText(subject), smallestText(text))]);
+		return [...from, R.topic(timestamp, smallestText(subject), smallestText(text))];
 	case 'reply':
 		if (!(parent instanceof Uint8Array) || parent.length !== 32)
 			throw new RangeError('a Reply needs the 32-byte ID of its parent');
-		return R.payload([R.reply(timestamp, parent, smallestText(text))]);
+		return [R.reply(timestamp, parent, smallestText(text))];
 	case 'message':
-		return R.payload([...from, smallestText(text)]);
+		return [...from, smallestText(text)];
 	}
 	throw new RangeError(`unknown kind of post: ${kind}`);
 }

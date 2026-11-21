@@ -11,6 +11,7 @@ import { listen, inputs, decodeRecording } from './receiver.js';
 import { compose, split, chain, pick, secondsFor, airtime, needs, SECONDS_DEFAULT, SNR_DEFAULT, REDUNDANCY_DEFAULT } from './sender.js';
 import { output, encoderFor, play } from './transmitter.js';
 import { encodeCall } from './records.js';
+import { openKeys } from './keys.js';
 import * as view from './render.js';
 
 const $ = (id) => document.getElementById(id);
@@ -75,6 +76,9 @@ const [crypto, hydra] = await Promise.all([
 ]);
 // ----------------------------------------------------------------- log
 
+// the fingerprints of the station's own keys, filled by fillKeys()
+let ownKeys = new Set();
+
 // what the log shows, newest last: () => element, so it can be drawn
 // again when trust changes what an entry looks like
 let items = [];
@@ -109,7 +113,7 @@ async function restart() {
 
 // asking before trusting, then moving the key's frames
 view.configure({
-	keyInfo: (key) => station.keyInfo(key),
+	keyInfo: (key) => ({ ...station.keyInfo(key), own: ownKeys.has(key) }),
 	trust: async (key, on) => {
 		if (on && !await view.confirmTrust(key))
 			return;
@@ -352,6 +356,8 @@ $('import').onchange = async () => {
 		$('import-result').textContent = `${file.name}: ${r.added.length} added, ${r.kept.length} already there, ${r.skipped.length} skipped${gone.length ? `, ${gone.length} evicted` : ''}.`;
 		// rebuild the log from the store
 		await restart();
+		await trustOwn();
+		await fillKeys();
 	} catch (err) {
 		$('import-result').textContent = `Can't import ${file.name}: ${err.message}`;
 	}
@@ -407,6 +413,8 @@ $('delete-all').onclick = async () => {
 					localStorage.removeItem(key);
 		} catch {}
 		await restart();
+		await trustOwn();
+		await fillKeys();
 		$('import-result').textContent = '';
 		$('delete-result').textContent = `Deleted ${n} file${n === 1 ? '' : 's'}.`;
 		status('all data deleted');
@@ -431,13 +439,12 @@ $('install').onclick = async () => {
 
 // ----------------------------------------------------------------- sending
 
-// the station's own settings: call sign, name, seconds per frame, SNR
-// threshold, extra blocks
+// the station's own settings: the preamble's call sign, seconds per frame,
+// SNR threshold, extra blocks
 const own = async () => {
 	const s = (await store.settings()).station ?? {};
 	return {
 		callSign: s.callSign ?? '',
-		name: s.name ?? '',
 		seconds: s.seconds ?? SECONDS_DEFAULT,
 		snr: s.snr ?? SNR_DEFAULT,
 		redundancy: s.redundancy ?? REDUNDANCY_DEFAULT,
@@ -447,7 +454,6 @@ const own = async () => {
 async function fillOwn() {
 	const o = await own();
 	$('call-sign').value = o.callSign;
-	$('name').value = o.name;
 	$('frame-seconds').value = o.seconds;
 	$('snr').value = o.snr;
 	$('redundancy').value = Math.round(o.redundancy * 100);
@@ -472,13 +478,188 @@ async function saveOwn() {
 	const redundancy = Math.min(1, Math.max(0, (Number($('redundancy').value) || 0) / 100));
 	const snr = Math.min(30, Math.max(1, Number($('snr').value) || SNR_DEFAULT));
 	const old = await own();
-	await store.setSettings({ station: { callSign: ok ? call : old.callSign, name: $('name').value.trim(), seconds, snr, redundancy } });
+	await store.setSettings({ station: { callSign: ok ? call : old.callSign, seconds, snr, redundancy } });
 	await fillOwn();
 	estimate();
 }
 
-for (const id of ['call-sign', 'name', 'frame-seconds', 'snr', 'redundancy'])
+for (const id of ['call-sign', 'frame-seconds', 'snr', 'redundancy'])
 	$(id).onchange = saveOwn;
+
+// ------------------------------------------------------------------ keys
+
+const keys = crypto ? await openKeys(store, crypto) : null;
+const fromHex = (h) => Uint8Array.from(h.match(/../g), (b) => parseInt(b, 16));
+
+// keys held here count as trusted, also those an import brought
+async function trustOwn() {
+	let moved = false;
+	for (const k of keys ? await keys.list() : [])
+		if (!station.isTrusted(k.key)) {
+			await station.setTrust(k.key, true);
+			moved = true;
+		}
+	if (moved)
+		redraw();
+}
+
+// a call sign field: upper case, and checked
+function callField(input) {
+	const call = input.value.trim().toUpperCase();
+	input.value = call;
+	const ok = !call || validCall(call);
+	input.setCustomValidity(ok ? '' : 'up to 9 of A-Z, 0-9, - and /');
+	input.reportValidity();
+	return ok ? call : null;
+}
+
+// The revocations of a key on paper, one page each, in a window of their
+// own to print. Everything goes in as text.
+function printRevocations(k) {
+	const w = window.open('', '_blank');
+	if (!w)
+		return false;
+	const d = w.document;
+	d.title = `Revocations of ${k.label}`;
+	const el = (tag, text, style) => {
+		const e = d.createElement(tag);
+		if (text)
+			e.textContent = text;
+		if (style)
+			e.style.cssText = style;
+		return e;
+	};
+	const groups = (h, per) => h.match(/.{1,4}/g).reduce((lines, g, i) => {
+		if (i % per === 0)
+			lines.push([]);
+		lines[lines.length - 1].push(g);
+		return lines;
+	}, []).map((l) => l.join(' ')).join('\n');
+	d.body.style.cssText = 'font: 12pt/1.4 system-ui, sans-serif; color: #000; background: #fff; margin: 1.5cm;';
+	const notes = {
+		retired: 'This revokes the key below as retired: its owner no longer uses it, for instance after becoming a silent key. If the owner can\'t send it anymore, please send this code over Rattlechan: stations then mark later posts by this key as signed by a retired key.',
+		compromised: 'This revokes the key below as compromised: lost or stolen. Send this code over Rattlechan as soon as the key may be in someone else\'s hands: stations then stop trusting every post by this key.',
+	};
+	for (const reason of ['retired', 'compromised']) {
+		const page = el('section', null, 'page-break-after: always; break-after: page;');
+		page.append(
+			el('h1', `Rattlechan revocation: ${reason}`, 'font-size: 18pt;'),
+			el('p', notes[reason]),
+			el('p', `Key: ${k.label}${k.callSign ? `, ${k.callSign}` : ''}${k.name ? `, ${k.name}` : ''}`),
+			el('pre', groups(k.key, 8), 'font: 11pt ui-monospace, monospace;'),
+			el('p', 'Revocation, 99 bytes, to send as it is:'),
+			el('pre', groups(k.revocations[reason], 8), 'display: inline-block; font: 13pt ui-monospace, monospace; border: 1px solid #000; padding: 8pt;'),
+			el('p', 'Anyone holding this sheet can revoke the key, so keep it safe, as you would the key itself.', 'font-size: 10pt;'));
+		d.body.append(page);
+	}
+	w.focus();
+	w.print();
+	return true;
+}
+
+function keyCard(k) {
+	const field = (label, value, attrs = {}) => {
+		const input = view.el('input');
+		input.value = value ?? '';
+		Object.assign(input, attrs);
+		return [view.el('label.field', label, input), input];
+	};
+	const [labelField, label] = field('Label', k.label, { dir: 'auto' });
+	const [callFieldEl, call] = field('From-Call', k.callSign, { autocapitalize: 'characters', spellcheck: false, maxLength: 9, placeholder: 'none' });
+	const [nameField, name] = field('From-Name', k.name, { dir: 'auto', placeholder: 'none' });
+	const save = async () => {
+		const c = callField(call);
+		try {
+			await keys.update(k.key, { label: label.value.trim() || k.label, callSign: c ?? k.callSign, name: name.value.trim() });
+		} catch (err) {
+			$('new-key-result').textContent = err.message;
+		}
+		fillKeys();
+	};
+	label.onchange = call.onchange = name.onchange = save;
+	const print = view.el('button.small', 'Print revocations');
+	print.onclick = () => {
+		if (!printRevocations(k))
+			$('new-key-result').textContent = 'The browser blocked the window to print in.';
+	};
+	const confirm = view.el('input');
+	confirm.placeholder = 'DELETE';
+	confirm.setAttribute('aria-label', 'type DELETE to remove this key');
+	confirm.autocomplete = 'off';
+	const removeNow = view.el('button.small.danger', 'Remove key');
+	removeNow.disabled = true;
+	confirm.oninput = () => {
+		removeNow.disabled = confirm.value !== 'DELETE';
+	};
+	removeNow.onclick = async () => {
+		await keys.remove(k.key);
+		fillKeys();
+	};
+	const removeArea = view.el('div.remove-confirm',
+		view.el('p.warn', 'Export secrets and keep the printed revocations first: without them, a removed key can never be revoked. Type DELETE to remove it.'),
+		view.el('div.row', confirm, removeNow));
+	removeArea.hidden = true;
+	const remove = view.el('button.small', 'Remove…');
+	remove.onclick = () => {
+		removeArea.hidden = !removeArea.hidden;
+	};
+	return view.el('article.key-card',
+		view.el('div.key-card-head', view.identicon(fromHex(k.key)), view.el('strong', k.label), view.el('span.key', k.key.slice(0, 8))),
+		labelField, callFieldEl, nameField,
+		view.el('div.row', print, remove),
+		removeArea);
+}
+
+// the key list in Station and the choice in Send
+async function fillKeys() {
+	const list = keys ? await keys.list() : [];
+	const before = [...ownKeys].sort().join();
+	ownKeys = new Set(list.map((k) => k.key));
+	if ([...ownKeys].sort().join() !== before)
+		redraw();
+	$('key-list').replaceChildren(...list.map(keyCard));
+	const sel = $('signer');
+	const was = sel.value || recall('signer');
+	sel.replaceChildren(...list.map((k) => {
+		const o = view.el('option', [k.label, k.callSign, k.name].filter(Boolean).join(' · '));
+		o.value = k.key;
+		return o;
+	}));
+	if (list.some((k) => k.key === was))
+		sel.value = was;
+	$('no-keys').hidden = list.length > 0;
+	$('signer-field').hidden = list.length === 0;
+	estimate();
+}
+
+$('signer').onchange = () => {
+	remember('signer', $('signer').value);
+	estimate();
+};
+
+$('new-key-button').onclick = async () => {
+	if (!keys) {
+		$('new-key-result').textContent = 'CRYPTO failed to load: no keys.';
+		return;
+	}
+	const call = callField($('new-call'));
+	if (call === null)
+		return;
+	const fields = { label: $('new-label').value.trim() || 'Personal', callSign: call, name: $('new-name').value.trim() };
+	try {
+		const priv = $('new-private').value.trim();
+		const k = priv ? await keys.import(priv, fields) : await keys.create(fields);
+		for (const id of ['new-label', 'new-call', 'new-name', 'new-private'])
+			$(id).value = '';
+		$('new-key').open = false;
+		$('new-key-result').textContent = `Added ${k.label}. Print its revocations and export secrets now.`;
+		remember('signer', k.key);
+		await trustOwn();
+		await fillKeys();
+	} catch (err) {
+		$('new-key-result').textContent = err.message;
+	}
+};
 
 let kind = 'topic';
 let replyTo = null;
@@ -503,9 +684,12 @@ function setKind(k) {
 for (const b of document.querySelectorAll('.segmented [role=radio]'))
 	b.onclick = () => setKind(b.dataset.kind);
 
-// the post as it stands, or null with the reason
+// the post as it stands, signed, or null with the reason
 async function draft() {
 	const o = await own();
+	const k = keys && (await keys.list()).find((x) => x.key === $('signer').value);
+	if (!k)
+		return { why: keys ? 'Every post is signed: add a key in Station first.' : 'CRYPTO failed to load, so nothing can be signed.' };
 	const text = $('text').value;
 	if (!text.trim())
 		return { why: 'Write something.' };
@@ -515,7 +699,7 @@ async function draft() {
 		return { why: 'Pick a post to reply to.' };
 	const payload = compose({
 		kind, subject: $('subject').value.trim(), text, parent: replyTo,
-		callSign: o.callSign || null, name: o.name || null,
+		callSign: k.callSign, name: k.name, sign: await keys.signer(k.key),
 	});
 	return { payload, o };
 }
@@ -645,6 +829,8 @@ $('send-button').onclick = async () => {
 $('send-stop').onclick = () => sending?.stop();
 
 await fillOwn();
+await trustOwn();
+await fillKeys();
 setKind('topic');
 
 const startTab = recall('tab');
