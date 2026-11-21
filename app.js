@@ -219,10 +219,11 @@ async function startListening() {
 		receiver = await listen({
 			deviceId: $('input').value || recall('input') || null,
 			onReport: (r) => {
-				// the station doesn't listen to itself
+				// the meter keeps showing the input, but the station
+				// doesn't decode itself
+				level(r.peak);
 				if (Date.now() < deafUntil)
 					return;
-				level(r.peak);
 				if (r.events.length) {
 					enqueue(r.events);
 				} else if (!r.busy && receiving) {
@@ -481,8 +482,9 @@ for (const id of ['call-sign', 'name', 'frame-seconds', 'snr', 'redundancy'])
 
 let kind = 'topic';
 let replyTo = null;
-// receiving pauses while sending and a moment after, so the station
-// doesn't decode its own signal from the microphone
+// while sending and a moment after, the decoder's reports are ignored, so
+// the station doesn't decode its own signal from the microphone; the
+// microphone and the decoder keep running
 let deafUntil = 0;
 let sending = null;
 
