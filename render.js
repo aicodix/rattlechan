@@ -579,6 +579,22 @@ export function node(n, key = null) {
 
 export const nodes = (list, key = null) => el('div.nodes', ...list.map((n) => node(n, key)));
 
+// A post of the BBS tree (tree.js): its signer, as in the log, then the
+// post with its prefixes; a retired key is marked from the post's arrival
+export function postBox(p) {
+	drawing = p.arrival;
+	try {
+		const box = el('div.box.tree-post', el('div.box-head.signer', el('span.ok', '✓'), ...signer(p.signed)), node(p.node, hex(p.signed.key)));
+		touchToPlay(box);
+		return box;
+	} finally {
+		drawing = null;
+	}
+}
+
+// a text record as text, or its short hash if it can't be decoded
+export const textOf = (record, cls = 'text') => text(record, cls);
+
 // the head line of an entry or event: time, call sign and the rest
 export function head(arrival, callSign, ...rest) {
 	return el('div.entry-head', el('span.time', when(arrival)), ' ', el('span.call', callSign ?? '—'), ...rest);

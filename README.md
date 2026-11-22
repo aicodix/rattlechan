@@ -51,6 +51,8 @@ Early. The protocol is a v0 draft in [SPEC.md](SPEC.md) and will change while th
 * [examples/session_test.mjs](examples/session_test.mjs): the whole session through the decoder and a station, at both rates, run with `node examples/session_test.mjs`
 * [station.js](station.js): what the station does with a received frame: parse, check signatures, reassemble Fragments, learn about keys, store in the tier trust puts it in, and replay the stored frames at startup
 * [station_test.mjs](station_test.mjs): frames through the station into a store in memory, run with `node station_test.mjs`
+* [tree.js](tree.js): the BBS tree: signed posts gathered into conversations, on boards, direct or elsewhere, and the ones for the station in its inbox
+* [tree_test.mjs](tree_test.mjs): conversations, boards and the inbox from posts through a station, run with `node tree_test.mjs`
 * [index.html](index.html), [app.js](app.js), [app.css](app.css), [render.js](render.js): the GUI: a log of everything received and sent, sending signed posts, the station's keys, and the station's settings, receiver and storage; serve the directory with `python3 -m http.server` and open it
 * [render_test.mjs](render_test.mjs): what render.js does without a document, such as telling animated WebP apart and identicons, run with `node render_test.mjs`
 * [sender.js](sender.js): sending: a post as records, addressed or for everyone, in one frame or as Fragments with extra blocks, only in modes that decode at the chosen SNR, chained into one seamless transmission

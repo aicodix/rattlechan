@@ -27,7 +27,11 @@
 </header>
 
 <main>
-	<section id="log" class="tab">
+	<section id="inbox" class="tab" hidden></section>
+
+	<section id="boards" class="tab" hidden></section>
+
+	<section id="log" class="tab" hidden>
 		<p id="log-empty" class="dim">Nothing received yet. Start listening in Station.</p>
 		<div id="entries"></div>
 		<p id="log-more" class="dim" hidden></p>
@@ -166,7 +170,9 @@
 </main>
 
 <nav role="tablist">
-	<button role="tab" data-tab="log" aria-selected="true">Log</button>
+	<button role="tab" data-tab="inbox" aria-selected="true">Inbox</button>
+	<button role="tab" data-tab="boards" aria-selected="false">Boards</button>
+	<button role="tab" data-tab="log" aria-selected="false">Log</button>
 	<button role="tab" data-tab="send" aria-selected="false">Send</button>
 	<button role="tab" data-tab="station" aria-selected="false">Station</button>
 </nav>

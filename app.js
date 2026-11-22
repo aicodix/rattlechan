@@ -10,9 +10,10 @@ import { openStation } from './station.js';
 import { listen, inputs, decodeRecording } from './receiver.js';
 import { compose, composeAvatar, testNoise, split, chain, pick, secondsFor, airtime, needs, SECONDS_DEFAULT, SNR_DEFAULT, REDUNDANCY_DEFAULT } from './sender.js';
 import { output, encoderFor, play, LEVEL_DEFAULT, LEVEL_MIN } from './transmitter.js';
-import { encodeCall, decodeText, fromCall, fromName } from './records.js';
+import { encodeCall, decodeText, fromCall, fromName, textUTF8, T } from './records.js';
 import { smallestText } from './encodings.js';
 import { openKeys } from './keys.js';
+import { conversations, boards } from './tree.js';
 import * as view from './render.js';
 
 const $ = (id) => document.getElementById(id);
@@ -50,6 +51,8 @@ function showTab(name) {
 	remember('tab', name);
 	if (name === 'station')
 		refreshStorage();
+	if (name === 'inbox' || name === 'boards')
+		showReading();
 }
 
 for (const b of document.querySelectorAll('nav [role=tab]'))
@@ -104,6 +107,7 @@ let items = [];
 
 function add(draw) {
 	items.push(draw);
+	readingChanged();
 	$('log-empty').hidden = true;
 	$('entries').prepend(draw());
 	if (items.length > SHOWN) {
@@ -117,6 +121,172 @@ function add(draw) {
 function redraw() {
 	$('entries').replaceChildren(...items.map((draw) => draw()).reverse());
 	$('log-empty').hidden = items.length > 0;
+	readingChanged();
+}
+
+// ------------------------------------------------------ inbox and boards
+
+// what is open: a board, and a conversation by its root's ID, per tab
+const reading = { inbox: { conversation: null }, boards: { board: null, conversation: null } };
+// direct conversations whose posts by others the user opened
+const strangersShown = new Set();
+
+// who this station is, for the inbox: its keys, call signs and names,
+// a name both in its smallest encoding and in UTF-8
+function myself() {
+	const calls = new Set([$('call-sign').value.trim().toUpperCase()].filter(Boolean));
+	const names = [];
+	for (const k of ownKeys.values()) {
+		if (k.callSign)
+			calls.add(k.callSign);
+		if (k.name)
+			names.push(smallestText(k.name), textUTF8(k.name));
+	}
+	return { keys: new Set(ownKeys.keys()), calls, names };
+}
+
+// redrawn when frames arrive or trust changes, if a reading tab is open
+let readingPending = false;
+function readingChanged() {
+	if (readingPending || ($('inbox').hidden && $('boards').hidden))
+		return;
+	readingPending = true;
+	setTimeout(() => {
+		readingPending = false;
+		showReading();
+	}, 200);
+}
+
+const INBOX_WHY = {
+	key: 'to your fingerprint',
+	mine: 'you are in it',
+	call: (c) => `to ${c.root.to.handle}, call signs get reassigned`,
+	name: 'maybe for you, by name',
+};
+
+// a post's author in one line: call sign and name once trusted or own,
+// otherwise the short fingerprint
+function author(p) {
+	const info = keyInfo(p.key);
+	const name = info.name && (typeof info.name === 'string' ? info.name : decodeText(info.name));
+	const who = (info.trusted || info.own) && (info.callSign || name) ? [info.callSign, name].filter(Boolean).join(' ') : `fingerprint ${p.key.slice(0, 8)}`;
+	return view.el('span.who', view.identicon(fromHex(p.key), 16), ' ', who);
+}
+
+function subject(c) {
+	const n = c.root.node;
+	return n.type === T.TOPIC ? view.textOf(n.subject, 'subject') : view.el('span.dim', `↩ to a post not received, ${c.root.parent.slice(0, 8)}`);
+}
+
+// one conversation in a list
+function conversationRow(c, open) {
+	const shown = c.posts.length - c.hidden.size;
+	const why = c.inbox && (typeof INBOX_WHY[c.inbox] === 'function' ? INBOX_WHY[c.inbox](c) : INBOX_WHY[c.inbox]);
+	const row = view.el('button.row-card',
+		view.el('strong', subject(c)),
+		view.el('span.dim', author(c.root), ` · ${shown} post${shown === 1 ? '' : 's'}${c.hidden.size ? ` (+${c.hidden.size} from others)` : ''} · ${view.when(c.last)}`),
+		why ? view.el(c.inbox === 'name' || c.inbox === 'call' ? 'span.warn' : 'span.ok', why) : '');
+	row.onclick = open;
+	return row;
+}
+
+// a conversation as a tree: replies under their parents, by arrival,
+// indented a few levels at most; in a direct one, posts by others behind
+// a button
+function thread(c, back, backLabel) {
+	const showAll = strangersShown.has(c.root.id);
+	const branch = (p, depth) => {
+		if (c.hidden.has(p) && !showAll)
+			return null;
+		const box = view.el(`div.tree-node.depth-${Math.min(depth, 4)}`, view.postBox(p));
+		for (const child of p.children) {
+			const e = branch(child, depth + 1);
+			if (e)
+				box.append(e);
+		}
+		return box;
+	};
+	const top = view.el('button.small', `← ${backLabel}`);
+	top.onclick = back;
+	const out = [view.el('div.thread-bar', top), view.el('h2.thread-subject', subject(c))];
+	if (c.place.kind === 'direct')
+		out.push(view.el('p.dim', 'A direct conversation: only the posts of its two fingerprints show. Everyone in range receives it all the same.'));
+	if (c.place.kind === 'elsewhere')
+		out.push(view.el('p.dim', 'The post this answers hasn\'t arrived. It joins its conversation once it does.'));
+	out.push(branch(c.root, 0));
+	if (c.hidden.size) {
+		const b = view.el('button.small', showAll ? `Hide the ${c.hidden.size} from others` : `${c.hidden.size} more from others`);
+		b.onclick = () => {
+			if (showAll)
+				strangersShown.delete(c.root.id);
+			else
+				strangersShown.add(c.root.id);
+			showReading();
+		};
+		out.push(view.el('div.row', b));
+	}
+	return out;
+}
+
+const boardName = (b) => b.board === 'everyone' ? 'Everyone' : b.board === 'elsewhere' ? 'Elsewhere' : view.textOf(b.name, 'board-name');
+
+function showReading() {
+	if (!station)
+		return;
+	const list = conversations(station.entries(), myself());
+	const byId = (id) => list.find((c) => c.root.id === id);
+	// the inbox
+	const inbox = list.filter((c) => c.inbox);
+	const ic = reading.inbox.conversation && byId(reading.inbox.conversation);
+	if (ic) {
+		$('inbox').replaceChildren(...thread(ic, () => {
+			reading.inbox.conversation = null;
+			showReading();
+		}, 'Inbox'));
+	} else {
+		reading.inbox.conversation = null;
+		$('inbox').replaceChildren(view.el('h2', 'Inbox'),
+			inbox.length ? view.el('div.rows', ...inbox.map((c) => conversationRow(c, () => {
+				reading.inbox.conversation = c.root.id;
+				showReading();
+				window.scrollTo(0, 0);
+			}))) : view.el('p.dim', 'Nothing for you yet: Topics to your fingerprints, call signs or names, and conversations you are in, land here.'));
+	}
+	// the boards
+	const all = boards(list);
+	const board = reading.boards.board && all.find((b) => b.board === reading.boards.board);
+	const bc = board && reading.boards.conversation && board.conversations.find((c) => c.root.id === reading.boards.conversation);
+	if (bc) {
+		$('boards').replaceChildren(...thread(bc, () => {
+			reading.boards.conversation = null;
+			showReading();
+		}, board.board === 'everyone' ? 'Everyone' : board.board === 'elsewhere' ? 'Elsewhere' : 'Board'));
+	} else if (board) {
+		reading.boards.conversation = null;
+		const top = view.el('button.small', '← Boards');
+		top.onclick = () => {
+			reading.boards.board = null;
+			showReading();
+		};
+		$('boards').replaceChildren(view.el('div.thread-bar', top), view.el('h2', boardName(board)),
+			board.conversations.length ? view.el('div.rows', ...board.conversations.map((c) => conversationRow(c, () => {
+				reading.boards.conversation = c.root.id;
+				showReading();
+				window.scrollTo(0, 0);
+			}))) : view.el('p.dim', 'No Topics here yet.'));
+	} else {
+		reading.boards.board = null;
+		$('boards').replaceChildren(view.el('h2', 'Boards'), view.el('div.rows', ...all.map((b) => {
+			const row = view.el('button.row-card', view.el('strong', boardName(b)),
+				view.el('span.dim', `${b.conversations.length} conversation${b.conversations.length === 1 ? '' : 's'}${b.last ? ` · ${view.when(b.last)}` : ''}`));
+			row.onclick = () => {
+				reading.boards.board = b.board;
+				showReading();
+				window.scrollTo(0, 0);
+			};
+			return row;
+		})), view.el('p.dim', 'Signed Topics to everyone and to boards (group names). Posts from fingerprints you don\'t trust show without names or pictures; the Log has every frame.'));
+	}
 }
 
 // a fresh station on the store, its frames in the log
@@ -1279,4 +1449,4 @@ $('one-at-a-time').checked = oneAtATime();
 setKind('topic');
 
 const startTab = recall('tab');
-showTab(['station', 'send'].includes(startTab) ? startTab : 'log');
+showTab(['inbox', 'boards', 'log', 'send', 'station'].includes(startTab) ? startTab : 'inbox');
