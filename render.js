@@ -374,7 +374,9 @@ const EXTENSIONS = Object.freeze({
 // A media part as a file: { name, data }. Only a MIME escape brings its
 // own name; everything else is named by the BLAKE2s-256 of the file, hex,
 // with the extension of its type. Codec2 gets the 7-byte .c2 header back:
-// magic C0 DE C2, version 1.0, the mode byte, flags 0.
+// magic C0 DE C2, version 0.8, the mode byte, flags 0. FFmpeg's demuxer
+// takes only major version 0 (minor 8 or later); Codec2's c2dec reads
+// just the magic and the mode.
 export function fileOf(n) {
 	let data, ext;
 	switch (n.type) {
@@ -385,7 +387,7 @@ export function fileOf(n) {
 		break;
 	case T.CODEC2:
 		data = new Uint8Array(6 + n.body.length);
-		data.set([0xC0, 0xDE, 0xC2, 1, 0, n.mode, 0]);
+		data.set([0xC0, 0xDE, 0xC2, 0, 8, n.mode, 0]);
 		data.set(n.body.subarray(1), 7);
 		ext = 'c2';
 		break;

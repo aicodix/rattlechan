@@ -53,7 +53,7 @@ check('MiB', bytes(3 * 1048576), '3.0 MiB');
 {
 	const part = (rec) => R.parse(R.payload([rec]))[0];
 	const c2 = fileOf(part(R.codec2(8, Uint8Array.of(1, 2, 3, 4, 5, 6, 7))));
-	check('Codec2: the .c2 header back', hex(c2.data), 'c0dec2010008' + '00' + '01020304050607');
+	check('Codec2: the .c2 header back', hex(c2.data), 'c0dec2000808' + '00' + '01020304050607');
 	check('Codec2: named by its hash', c2.name, `${hex(blake2s(c2.data))}.c2`);
 	const named = fileOf(part(R.mime('application/pdf', 'log.pdf', Uint8Array.of(37, 80))));
 	check('MIME with a name', [named.name, hex(named.data)].join(), 'log.pdf,2550');
