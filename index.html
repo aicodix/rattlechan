@@ -101,6 +101,18 @@
 			<label class="field inline">Extra blocks (%) <input id="redundancy" type="number" min="0" max="100" step="5" inputmode="numeric"></label>
 		</div>
 		<p class="dim">Frames only use modes that decode at the SNR threshold. A post that doesn't fit in one frame goes out either as one longer frame or as fragments with that many extra blocks, in one seamless transmission. The radio is keyed by VOX.</p>
+		<div class="row level-row">
+			<label class="field inline">Output level <input id="output-level" type="range" min="-40" max="0" step="1"></label>
+			<output id="output-level-value" for="output-level"></output>
+			<button id="test-output">Test</button>
+			<button id="test-stop" hidden>Stop</button>
+		</div>
+		<p class="dim">Kept on this device. Start low and raise it until the radio's ALC barely moves. Test sends two seconds of the modem's leading noise, at the level of its signal, with no call sign and nothing to decode.</p>
+		<div class="row level-row">
+			<label class="field inline">Leading noise <input id="lead" type="range" min="1" max="15" step="1"></label>
+			<output id="lead-value" for="lead"></output>
+		</div>
+		<p class="dim">Kept on this device. Noise before each transmission, so the radio's VOX keys and squelches open before the first frame starts. Raise it if the start of a transmission gets cut off.</p>
 
 		<h2>Keys</h2>
 		<p class="dim">Every post is signed with one of these keys, and keys held here count as trusted. Export secrets to keep them, and print the revocations of each key.</p>

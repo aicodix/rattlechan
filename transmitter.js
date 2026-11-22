@@ -28,14 +28,21 @@ export function encoderFor(rate) {
 	return encoders.get(rate);
 }
 
-// Play samples at the output's rate. Returns { done, stop() }: done
-// resolves to true when everything was played, false when stopped.
-export function play(context, samples) {
+// The output level, per device: dB below the modem's full scale
+export const LEVEL_DEFAULT = -20;
+export const LEVEL_MIN = -40;
+
+// Play samples at the output's rate, level dB below full scale. Returns
+// { done, stop() }: done resolves to true when everything was played,
+// false when stopped.
+export function play(context, samples, level = 0) {
 	const buffer = context.createBuffer(1, samples.length, context.sampleRate);
 	buffer.copyToChannel(samples, 0);
 	const source = context.createBufferSource();
 	source.buffer = buffer;
-	source.connect(context.destination);
+	const gain = context.createGain();
+	gain.gain.value = 10 ** (Math.min(0, level) / 20);
+	source.connect(gain).connect(context.destination);
 	let stopped = false;
 	const done = new Promise((resolve) => {
 		source.onended = () => resolve(!stopped);

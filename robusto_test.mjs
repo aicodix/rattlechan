@@ -120,6 +120,28 @@ for (const rate of RATES) {
 	}
 	check(`${rate}: ping is about half a second`, E.ping(1).length, Math.round(4 * 41 / 300 * rate));
 
+	// ------------------------------------------- more leading noise
+
+	{
+		const symbol = Math.round(41 / 300 * rate);
+		const long = E.ping(5, 'doge', 4);
+		check(`${rate}: lead of 4 adds three symbols`, long.length, E.ping(5).length + 3 * symbol);
+		// the first guard interval after the noise blends with the last noise symbol
+		const guard = Math.round(rate / 300), short = E.ping(5, 'doge');
+		check(`${rate}: the same frame after the lead`, long.subarray(4 * symbol + guard).every((v, i) => v === short[symbol + guard + i]), true);
+		ev = receive(D, onAir(E.encode(randomBytes(100), { callSign: 'DL1ABC', lead: 7 }), rate));
+		check(`${rate}: a frame after a long lead decodes`, frames(ev).length, 1);
+		const n = E.noise(15);
+		check(`${rate}: noise of 15 symbols`, n.length, 15 * symbol + Math.round(rate / 300));
+		const a = n.subarray(symbol, 2 * symbol), b = n.subarray(2 * symbol, 3 * symbol);
+		check(`${rate}: noise symbols differ`, hex(new Uint8Array(a.buffer, a.byteOffset, a.byteLength)) === hex(new Uint8Array(b.buffer, b.byteOffset, b.byteLength)), false);
+		check(`${rate}: noise starts and ends silent`, n[0] === 0 && n[n.length - 1] === 0, true);
+		check(`${rate}: noise decodes to nothing`, receive(D, onAir(n, rate)).filter((e) => e.type !== 'sync').length, 0);
+		throws(`${rate}: lead 0`, () => E.ping(0, 'doge', 0));
+		throws(`${rate}: lead past the limit`, () => E.encode(new Uint8Array(1), { lead: 31 }));
+		throws(`${rate}: no noise`, () => E.noise(0));
+	}
+
 	// ------------------------------------------------ streaming input
 
 	const payload = randomBytes(200);

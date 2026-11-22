@@ -153,8 +153,9 @@ export function split(payload, { encoder, hydra, seconds = SECONDS_DEFAULT, snr 
 
 // The audio of frames chained back to back, each in the most robust mode
 // that fits seconds and decodes at snr dB, every one but the first without
-// its leading noise symbol. Returns { audio, modes, seconds }.
-export function chain(encoder, frames, { seconds = SECONDS_DEFAULT, snr = SNR_DEFAULT, callSign = 'ANONYMOUS' } = {}) {
+// its leading noise symbol; the first has lead symbols of it, for a VOX
+// that needs longer to key. Returns { audio, modes, seconds }.
+export function chain(encoder, frames, { seconds = SECONDS_DEFAULT, snr = SNR_DEFAULT, callSign = 'ANONYMOUS', lead = 1 } = {}) {
 	// a symbol and its guard interval: 41 / 300 seconds
 	const noise = encoder.rate / 300 * 41;
 	const parts = [];
@@ -163,7 +164,7 @@ export function chain(encoder, frames, { seconds = SECONDS_DEFAULT, snr = SNR_DE
 		const mode = pick(encoder, frame.length, { seconds, snr });
 		if (mode === null)
 			throw new RangeError(`a frame of ${frame.length} bytes doesn't fit in ${seconds} seconds at ${snr} dB`);
-		const audio = encoder.encode(frame, { mode, callSign });
+		const audio = encoder.encode(frame, { mode, callSign, lead: i ? 1 : lead });
 		parts.push(i ? audio.subarray(noise) : audio);
 		modes.push(mode);
 	}
@@ -176,8 +177,14 @@ export function chain(encoder, frames, { seconds = SECONDS_DEFAULT, snr = SNR_DE
 	return { audio, modes, seconds: audio.length / encoder.rate };
 }
 
+// About seconds of the modem's leading noise, at the level of its signal,
+// for setting a radio's input: no call sign, nothing to decode. The modem
+// continues the noise sequence, so its symbols differ, and fades it in
+// and out like a frame.
+export const testNoise = (encoder, seconds = 2) => encoder.noise(Math.max(1, Math.round(seconds / encoder.NOISE_SYMBOL)));
+
 // How long frames of these lengths take on the air when chained
 export function airtime(encoder, lengths, opts = {}) {
 	const each = lengths.map((n) => encoder.modeInfo(pick(encoder, n, opts)).seconds);
-	return each.reduce((a, b) => a + b, 0) - (lengths.length - 1) * 41 / 300;
+	return each.reduce((a, b) => a + b, 0) + ((opts.lead ?? 1) - lengths.length) * 41 / 300;
 }

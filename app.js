@@ -8,8 +8,8 @@ import { loadCrypto } from './crypto.js';
 import { loadHydra } from './hydra.js';
 import { openStation } from './station.js';
 import { listen, inputs, decodeRecording } from './receiver.js';
-import { compose, composeAvatar, split, chain, pick, secondsFor, airtime, needs, SECONDS_DEFAULT, SNR_DEFAULT, REDUNDANCY_DEFAULT } from './sender.js';
-import { output, encoderFor, play } from './transmitter.js';
+import { compose, composeAvatar, testNoise, split, chain, pick, secondsFor, airtime, needs, SECONDS_DEFAULT, SNR_DEFAULT, REDUNDANCY_DEFAULT } from './sender.js';
+import { output, encoderFor, play, LEVEL_DEFAULT, LEVEL_MIN } from './transmitter.js';
 import { encodeCall, decodeText, fromCall, fromName } from './records.js';
 import { smallestText } from './encodings.js';
 import { openKeys } from './keys.js';
@@ -1051,7 +1051,7 @@ function plan(E, d, how) {
 	}
 	const s = split(d.payload, { encoder: E, hydra, seconds, snr, redundancy });
 	const lengths = s.frames.map((f) => f.length);
-	return { ...s, seconds, snr, modes: lengths.map((n) => pick(E, n, { seconds, snr })), airtime: airtime(E, lengths, { seconds, snr }) };
+	return { ...s, seconds, snr, modes: lengths.map((n) => pick(E, n, { seconds, snr })), airtime: airtime(E, lengths, { seconds, snr, lead: leadSymbols() }) };
 }
 
 for (const r of document.querySelectorAll('input[name=how]'))
@@ -1086,14 +1086,14 @@ async function transmit(d, how, say, stop, step = null) {
 	const E = await encoderFor(ctx.sampleRate);
 	const callSign = d.o.callSign || 'ANONYMOUS';
 	const s = plan(E, d, how);
-	const opts = { seconds: s.seconds, snr: s.snr, callSign };
+	const opts = { seconds: s.seconds, snr: s.snr, callSign, lead: leadSymbols() };
 	const n = s.frames.length;
 	// one transmission: frames chained back to back, kept once all went out
 	const air = async (frames, what) => {
 		const c = chain(E, frames, opts);
 		const arrival = Date.now();
 		deafUntil = Infinity;
-		sending = play(ctx, c.audio);
+		sending = play(ctx, c.audio, outputLevel());
 		$('send-button').disabled = true;
 		stop.onclick = () => sending?.stop();
 		stop.hidden = false;
@@ -1168,6 +1168,66 @@ async function transmit(d, how, say, stop, step = null) {
 		estimate();
 	}
 }
+
+// ---------------------------------------------------------- output level
+
+// dB below the modem's full scale, per device
+function outputLevel() {
+	const v = Number(recall('outputLevel'));
+	return recall('outputLevel') !== null && Number.isFinite(v) ? Math.max(LEVEL_MIN, Math.min(0, v)) : LEVEL_DEFAULT;
+}
+
+function showLevel() {
+	$('output-level').value = outputLevel();
+	$('output-level-value').textContent = `${outputLevel()} dB`;
+}
+$('output-level').oninput = () => {
+	remember('outputLevel', $('output-level').value);
+	showLevel();
+};
+showLevel();
+
+// symbols of leading noise before each transmission, per device
+function leadSymbols() {
+	const v = Number(recall('lead'));
+	return Number.isInteger(v) && v >= 1 && v <= 15 ? v : 1;
+}
+
+function showLead() {
+	$('lead').value = leadSymbols();
+	$('lead-value').textContent = `${(leadSymbols() * 41 / 300).toFixed(2)} s`;
+}
+$('lead').oninput = () => {
+	remember('lead', $('lead').value);
+	showLead();
+	estimate();
+};
+showLead();
+
+$('test-output').onclick = async () => {
+	if (sending || stepping)
+		return;
+	$('test-output').disabled = true;
+	try {
+		const ctx = await output();
+		const audio = testNoise(await encoderFor(ctx.sampleRate));
+		deafUntil = Infinity;
+		sending = play(ctx, audio, outputLevel());
+		$('test-stop').onclick = () => sending?.stop();
+		$('test-stop').hidden = false;
+		status('sending', 'ok');
+		await sending.done;
+	} catch (err) {
+		status(`can't test: ${err.message}`, 'warn');
+	} finally {
+		sending = null;
+		deafUntil = Date.now() + 1500;
+		$('test-stop').hidden = true;
+		$('test-output').disabled = false;
+		if ($('status').textContent === 'sending')
+			status(receiver ? 'listening' : 'not listening');
+	}
+};
 
 // the post can't change while its fragments go out one at a time
 function lockSend(on) {

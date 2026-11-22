@@ -9,6 +9,9 @@ import { instantiate } from './wasm.js';
 export const RATES = Object.freeze([44100, 48000]);
 export const PAYLOAD_MAX = 61440;
 export const SECONDS_MAX = 60;
+// symbols of leading noise before a frame, and of noise alone, at most
+export const LEAD_MAX = 30;
+export const NOISE_MAX = 300;
 
 // decoder event bits
 export const EVENT = Object.freeze({
@@ -82,7 +85,14 @@ export async function loadEncoder(rate, source) {
 		return describe(wasm, mode);
 	};
 
-	const frame = (mode, payload, call) => {
+	// one symbol of leading noise and its guard interval, in seconds
+	const NOISE_SYMBOL = 41 / 300;
+
+	// lead: symbols of leading noise before the frame, at least the one
+	// every frame starts with, more for a VOX that needs longer to key
+	const frame = (mode, payload, call, lead = 1) => {
+		if (!Number.isInteger(lead) || lead < 1 || lead > LEAD_MAX)
+			throw new RangeError(`lead must be 1..${LEAD_MAX} symbols`);
 		const number = callNumber(call);
 		const chunks = [];
 		let total = 0;
@@ -93,6 +103,8 @@ export async function loadEncoder(rate, source) {
 			total += len;
 		};
 		take(wasm.start(mode));
+		for (let i = 1; i < lead; ++i)
+			take(wasm.noise());
 		payloadBuf.set(payload);
 		if (wasm.begin(payload.length, number) < 0)
 			throw new Error('ROBUSTO encoder refused the frame');
@@ -110,7 +122,7 @@ export async function loadEncoder(rate, source) {
 
 	// The audio of one frame carrying payload, at most seconds long. Shorter
 	// payloads arrive padded with zeros to the payload of the mode.
-	const encode = (payload, { seconds = 5, bpsk = false, callSign = 'ANONYMOUS', mode } = {}) => {
+	const encode = (payload, { seconds = 5, bpsk = false, callSign = 'ANONYMOUS', mode, lead = 1 } = {}) => {
 		if (!(payload instanceof Uint8Array) || payload.length > PAYLOAD_MAX)
 			throw new RangeError(`payload must be a Uint8Array of at most ${PAYLOAD_MAX} bytes`);
 		if (mode === undefined) {
@@ -124,17 +136,31 @@ export async function loadEncoder(rate, source) {
 			if (!info || !info.symbols || payload.length > info.payload)
 				throw new RangeError(`mode ${mode} doesn't carry ${payload.length} bytes`);
 		}
-		return frame(mode, payload, callSign);
+		return frame(mode, payload, callSign, lead);
 	};
 
 	// The audio of a ping: a call sign and a value 0..31, about half a second
-	const ping = (value, callSign = 'ANONYMOUS') => {
+	const ping = (value, callSign = 'ANONYMOUS', lead = 1) => {
 		if (!Number.isInteger(value) || value < 0 || value > 31)
 			throw new RangeError('ping value must be 0..31');
-		return frame(value, new Uint8Array(0), callSign);
+		return frame(value, new Uint8Array(0), callSign, lead);
 	};
 
-	return { rate, pickMode, modeInfo, encode, ping };
+	// symbols of leading noise alone, fading in and out like a frame,
+	// carrying nothing: for setting a radio's input
+	const noise = (symbols) => {
+		if (!Number.isInteger(symbols) || symbols < 1 || symbols > NOISE_MAX)
+			throw new RangeError(`noise must be 1..${NOISE_MAX} symbols`);
+		const parts = [audio(wasm.start(0))];
+		for (let i = 1; i < symbols; ++i)
+			parts.push(audio(wasm.noise()));
+		parts.push(audio(wasm.stop()));
+		const out = new Float32Array(parts.reduce((n, p) => n + p.length, 0));
+		parts.reduce((pos, p) => (out.set(p, pos), pos + p.length), 0);
+		return out;
+	};
+
+	return { rate, pickMode, modeInfo, encode, ping, noise, NOISE_SYMBOL };
 }
 
 // A streaming decoder: feed() it samples as they arrive, it returns what
