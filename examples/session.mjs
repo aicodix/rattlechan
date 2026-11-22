@@ -126,7 +126,15 @@ export async function session({ file, rate = 48000, now = Math.floor(Date.now() 
 	post('M0FAKE', 'forged signature', forged);
 	post('M0FAKE', 'malformed', Uint8Array.of(0xFF, 0xFF, 0xFF, 0xFF, 0, 1, 2, 3));
 
-	// one seamless chain, each frame in the most robust mode that carries it
+	return { rate, ...onAir(E, items) };
+}
+
+// Items as one seamless chain, each frame in the most robust mode that
+// carries it, every one but the first without its leading noise symbol,
+// with a quarter second of silence at both ends. Sets each item's mode
+// and start (in samples). Returns { audio, items }.
+export function onAir(E, items) {
+	const rate = E.rate;
 	const noise = rate / 300 * 41;
 	const pieces = [];
 	let length = rate / 4;
@@ -151,7 +159,7 @@ export async function session({ file, rate = 48000, now = Math.floor(Date.now() 
 		audio.set(p, pos);
 		pos += p.length;
 	}
-	return { rate, audio, items };
+	return { audio, items };
 }
 
 // 16-bit mono WAV, at half scale to leave headroom
