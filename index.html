@@ -129,6 +129,16 @@
 			<p id="new-key-result" class="dim"></p>
 		</details>
 
+		<h2>Kept revocations</h2>
+		<p class="dim">Revocations of keys you trust, your own included, kept forever. The station repeats them, so stations that missed one hear it later.</p>
+		<div id="relay-list" class="rows"></div>
+		<label class="check"><input type="checkbox" id="relay-fill"> <span>Fill the spare room of every transmission with them, the one sent longest ago first: no frame gets longer</span></label>
+		<div class="row">
+			<button id="relay-send">Send all</button>
+			<button id="relay-stop" hidden>Stop</button>
+		</div>
+		<p id="relay-status" class="dim"></p>
+
 		<h2>Storage</h2>
 		<p id="persist"></p>
 		<p id="install-hint" class="warn" hidden>The browser may delete this station's data after a week without use. Install Rattlechan (Safari: File or Share, Add to Dock or Add to Home Screen; Chrome: Install) and export now and then.</p>

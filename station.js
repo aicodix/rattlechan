@@ -397,6 +397,48 @@ export async function openStation({ store, crypto = null, hydra = null }) {
 		unkept: [...new Set((unkept.get(key) ?? []).map((r) => r.reason))],
 	});
 
+	// The kept revocations to repeat (SPEC.md, Revocations: relays repeat
+	// the kept ones now and then), the one sent longest ago or never first:
+	// [{ key, reason, bytes, arrival, sent }]. A key's retired one is left
+	// out once its compromised one is kept, which overrides it.
+	// data/relayed.json is read and written one call at a time, so a read
+	// never sees half a write
+	let relayQueue = Promise.resolve();
+	const serial = (fn) => (...args) => {
+		const run = relayQueue.then(() => fn(...args));
+		relayQueue = run.catch(() => {});
+		return run;
+	};
+	const relayable = serial(async () => {
+		const sent = (await store.getData('relayed'))?.sent ?? {};
+		const list = await store.revocations();
+		const compromised = new Set(list.filter((r) => r.reason === 'compromised').map((r) => r.key));
+		const out = [];
+		for (const r of list) {
+			if (r.reason === 'retired' && compromised.has(r.key))
+				continue;
+			const bytes = await store.readRevocation(r.name);
+			if (bytes)
+				out.push({ key: r.key, reason: r.reason, bytes, arrival: r.arrival, sent: sent[`${r.key}_${r.reason}`] ?? 0 });
+		}
+		return out.sort((a, b) => a.sent - b.sent || a.arrival - b.arrival);
+	});
+	// remember that these went out at time, in data/relayed.json
+	const relayed = serial(async (list, time = Date.now()) => {
+		const data = await store.getData('relayed') ?? {};
+		const sent = { ...(data.sent ?? {}) };
+		for (const r of list)
+			sent[`${r.key}_${r.reason}`] = time;
+		await store.putData('relayed', { ...data, sent });
+	});
+	// whether transmissions fill their spare room with kept revocations,
+	// on unless turned off
+	const relayFill = serial(async () => (await store.getData('relayed'))?.fill !== false);
+	const setRelayFill = serial(async (on) => {
+		const data = await store.getData('relayed') ?? {};
+		await store.putData('relayed', { ...data, fill: !!on });
+	});
+
 	// sets of Fragments still waiting for blocks
 	const waiting = () => reassembler ? reassembler.missing() : [];
 
@@ -411,5 +453,5 @@ export async function openStation({ store, crypto = null, hydra = null }) {
 		return out.map(keyInfo);
 	};
 
-	return { analyze, receive, sent, replay, waiting, entries: () => all, keyInfo, seen, setTrust, isTrusted: (k) => trusted.has(k) };
+	return { analyze, receive, sent, replay, waiting, entries: () => all, keyInfo, seen, setTrust, isTrusted: (k) => trusted.has(k), relayable, relayed, relayFill, setRelayFill };
 }

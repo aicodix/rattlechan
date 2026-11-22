@@ -3,7 +3,7 @@
 // ROBUSTO decoder and reassembled with HYDRA.
 
 import { readFile } from 'node:fs/promises';
-import { compose, composeAvatar, frameCapacity, split, chain, pick, secondsFor, airtime, needs, THRESHOLDS, SECONDS_DEFAULT, SNR_DEFAULT } from './sender.js';
+import { compose, composeAvatar, fill, pack, frameCapacity, split, chain, pick, secondsFor, airtime, needs, THRESHOLDS, SECONDS_DEFAULT, SNR_DEFAULT } from './sender.js';
 import { loadEncoder, loadDecoder } from './robusto.js';
 import { loadHydra, Reassembler } from './hydra.js';
 import { loadCrypto } from './crypto.js';
@@ -130,6 +130,24 @@ throws('unknown kind', () => compose({ kind: 'poll', text: 'x' }));
 for (const rate of [48000, 44100]) {
 	const E = await loadEncoder(rate, await file(`robusto_encoder_${rate}.wasm`));
 	const D = await loadDecoder(rate, await file(`robusto_decoder_${rate}.wasm`));
+	// spare room filled with revocations, never a longer frame
+	{
+		const C2 = await loadCrypto(await file('crypto.wasm'));
+		const revs = Array.from({ length: 40 }, (_, i) => C2.revocations(new Uint8Array(32).fill(i + 1))[i % 2 ? 'retired' : 'compromised']);
+		const post = compose({ kind: 'topic', subject: 'Hi', text: 'y'.repeat(200), timestamp: 1 });
+		const big = compose({ kind: 'topic', subject: 'Hi', text: 'x'.repeat(frameCapacity(E) - 20), timestamp: 1 });
+		const f = fill(E, [post, big], revs);
+		check(`${rate}: fill keeps the modes`, f.frames.map((x) => pick(E, x.length)).join(), [post, big].map((x) => pick(E, x.length)).join());
+		check(`${rate}: fill uses the room of the first`, f.used[0].length > 0 && f.frames[0].length <= E.modeInfo(pick(E, post.length)).payload, true);
+		check(`${rate}: none in a full frame`, f.used[1].length, 0);
+		check(`${rate}: fill in order`, f.used[0].every((v, i) => v === i), true);
+		const parsed = R.parse(f.frames[0], { verify: C2.verify });
+		check(`${rate}: the post and the revocations parse`, parsed.length, 1 + f.used[0].length);
+		const p = pack(E, revs);
+		check(`${rate}: pack: every revocation once`, p.used.flat().join(), revs.map((_, i) => i).join());
+		check(`${rate}: pack: frames within capacity`, p.frames.every((x) => pick(E, x.length) !== null), true);
+		check(`${rate}: pack: as few frames as fit`, p.frames.length, Math.ceil(40 / Math.floor(frameCapacity(E) / 99)));
+	}
 	const cap = frameCapacity(E);
 	check(`${rate}: capacity fits`, pick(E, cap) !== null, true);
 	check(`${rate}: one byte more doesn't`, pick(E, cap + 1), null);

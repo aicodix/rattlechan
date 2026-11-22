@@ -119,6 +119,55 @@ export function frameCapacity(encoder, opts = {}) {
 	return lo;
 }
 
+// Fill the room left in frames with extra records (Uint8Arrays), in their
+// order, without making any frame longer on the air: a frame keeps the mode
+// it needs anyway, whose payload is padded with zeros to its size, so the
+// extras only take the place of padding. Returns { frames, used }, used[i]
+// being the indices of the extras frame i carries.
+export function fill(encoder, frames, extras, opts = {}) {
+	let next = 0;
+	const used = [];
+	const out = frames.map((f) => {
+		const mode = pick(encoder, f.length, opts);
+		let room = mode === null ? 0 : encoder.modeInfo(mode).payload - f.length;
+		const take = [];
+		while (next < extras.length && extras[next].length <= room) {
+			room -= extras[next].length;
+			take.push(next++);
+		}
+		used.push(take);
+		return take.length ? R.payload([f, ...take.map((i) => extras[i])]) : f;
+	});
+	return { frames: out, used };
+}
+
+// Records packed into as few frames as hold them, in order, each frame as
+// full as fits within the seconds and SNR; a record too big for a frame of
+// its own is left out. Returns { frames, used } as fill() does.
+export function pack(encoder, records, opts = {}) {
+	const cap = frameCapacity(encoder, opts);
+	const frames = [], used = [];
+	let take = [], size = 0;
+	const flush = () => {
+		if (take.length) {
+			frames.push(R.payload(take.map((i) => records[i])));
+			used.push(take);
+		}
+		take = [];
+		size = 0;
+	};
+	records.forEach((r, i) => {
+		if (r.length > cap)
+			return;
+		if (size + r.length > cap)
+			flush();
+		take.push(i);
+		size += r.length;
+	});
+	flush();
+	return { frames, used };
+}
+
 // the fewest seconds for one frame of length bytes at snr dB, or null if
 // not even the longest frame carries it
 export function secondsFor(encoder, length, snr = SNR_DEFAULT) {

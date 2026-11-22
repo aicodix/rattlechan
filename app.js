@@ -8,7 +8,7 @@ import { loadCrypto } from './crypto.js';
 import { loadHydra } from './hydra.js';
 import { openStation } from './station.js';
 import { listen, inputs, decodeRecording } from './receiver.js';
-import { compose, composeAvatar, split, chain, pick, secondsFor, airtime, needs, SECONDS_DEFAULT, SNR_DEFAULT, REDUNDANCY_DEFAULT } from './sender.js';
+import { compose, composeAvatar, fill, pack, split, chain, pick, secondsFor, airtime, needs, SECONDS_DEFAULT, SNR_DEFAULT, REDUNDANCY_DEFAULT } from './sender.js';
 import { output, encoderFor, play, LEVEL_DEFAULT, LEVEL_MIN } from './transmitter.js';
 import { encodeCall, decodeText, fromCall, fromName, textUTF8, T } from './records.js';
 import { smallestText } from './encodings.js';
@@ -96,6 +96,7 @@ const revokes = (e) => [e.facts, ...(e.fragments ?? []).map((f) => f.facts)].som
 
 // after a revocation: the key cards, Sign as and the log change
 async function revoked() {
+	showRelay();
 	await fillKeys();
 	redraw();
 	refreshStorage();
@@ -308,6 +309,7 @@ view.configure({
 		if (on && !await view.confirmTrust(key))
 			return;
 		await station.setTrust(key, on);
+		showRelay();
 		await fillKeys();
 		redraw();
 		refreshStorage();
@@ -551,6 +553,7 @@ $('import').onchange = async () => {
 		await restart();
 		await trustOwn();
 		await fillKeys();
+		await showRelay();
 	} catch (err) {
 		$('import-result').textContent = `Can't import ${file.name}: ${err.message}`;
 	}
@@ -608,6 +611,7 @@ $('delete-all').onclick = async () => {
 		await restart();
 		await trustOwn();
 		await fillKeys();
+		await showRelay();
 		$('import-result').textContent = '';
 		$('delete-result').textContent = `Deleted ${n} file${n === 1 ? '' : 's'}.`;
 		status('all data deleted');
@@ -921,6 +925,47 @@ function keyCard(k) {
 	view.touchToPlay(card);
 	return card;
 }
+
+// ------------------------------------------------------ kept revocations
+
+// the kept revocations, the next to go out first, and the switch
+async function showRelay() {
+	if (!station)
+		return;
+	const list = await station.relayable();
+	$('relay-list').replaceChildren(...list.map((r) => {
+		const info = keyInfo(r.key);
+		const name = info.name && (typeof info.name === 'string' ? info.name : decodeText(info.name));
+		const who = [info.callSign, name].filter(Boolean).join(' ') || `fingerprint ${r.key.slice(0, 8)}`;
+		return view.el('div.relay-item', view.identicon(fromHex(r.key), 24),
+			view.el('span', view.el('strong', who), ' ', view.el(r.reason === 'compromised' ? 'span.bad' : 'span.warn', r.reason),
+				view.el('span.dim', ` since ${view.when(r.arrival)}, ${r.sent ? `last sent ${view.when(r.sent)}` : 'not sent yet'}`)));
+	}));
+	if (!list.length)
+		$('relay-list').replaceChildren(view.el('p.dim', 'None kept yet.'));
+	$('relay-send').disabled = !list.length;
+	$('relay-fill').checked = await station.relayFill();
+}
+
+$('relay-fill').onchange = () => station.setRelayFill($('relay-fill').checked);
+
+// every kept revocation at once: as many per frame as fit, frames chained
+$('relay-send').onclick = async () => {
+	$('relay-send').disabled = true;
+	const say = (t) => {
+		$('relay-status').textContent = t;
+	};
+	try {
+		const list = await station.relayable();
+		const o = await own();
+		const E = await encoderFor((await output()).sampleRate);
+		const p = pack(E, list.map((r) => r.bytes), o);
+		await transmit({ frames: p.frames, o }, 'longer', say, $('relay-stop'));
+	} catch (err) {
+		say(`Can't send: ${err.message}`);
+	}
+	showRelay();
+};
 
 // an Avatar post of an own key, signed, with its From-Call and From-Name
 async function avatarDraft(k) {
@@ -1255,9 +1300,14 @@ async function transmit(d, how, say, stop, step = null) {
 	const ctx = await output();
 	const E = await encoderFor(ctx.sampleRate);
 	const callSign = d.o.callSign || 'ANONYMOUS';
-	const s = plan(E, d, how);
+	// frames packed by the caller, or the draft's own
+	const s = d.frames ? { frames: d.frames, K: d.frames.length, seconds: d.o.seconds, snr: d.o.snr } : plan(E, d, how);
 	const opts = { seconds: s.seconds, snr: s.snr, callSign, lead: leadSymbols() };
 	const n = s.frames.length;
+	// kept revocations in the room the frames leave anyway, the one sent
+	// longest ago first; a raw payload goes as it is
+	if (!d.raw && !d.frames && await station.relayFill())
+		s.frames = fill(E, s.frames, (await station.relayable()).map((r) => r.bytes), opts).frames;
 	// one transmission: frames chained back to back, kept once all went out
 	const air = async (frames, what) => {
 		const c = chain(E, frames, opts);
@@ -1273,15 +1323,23 @@ async function transmit(d, how, say, stop, step = null) {
 			const complete = await sending.done;
 			if (!complete)
 				return false;
-			// a revocation among them counts from then on
+			// a revocation among them counts from then on, and is
+			// remembered as sent, however it went out
 			let revoking = false;
+			const repeated = [];
 			for (const [i, f] of frames.entries()) {
 				const e = await station.sent(f, { arrival, callSign: d.o.callSign || null, mode: c.modes[i] });
 				add(() => view.entry(e));
 				revoking ||= revokes(e);
+				for (const facts of [e.facts, ...(e.fragments ?? []).map((x) => x.facts)])
+					repeated.push(...(facts?.revocations ?? []));
 			}
 			if (revoking)
 				await revoked();
+			if (repeated.length) {
+				await station.relayed(repeated);
+				showRelay();
+			}
 			return true;
 		} finally {
 			sending = null;
@@ -1443,6 +1501,7 @@ $('send-button').onclick = async () => {
 await fillOwn();
 await trustOwn();
 await fillKeys();
+await showRelay();
 $('one-at-a-time').checked = oneAtATime();
 setKind('topic');
 

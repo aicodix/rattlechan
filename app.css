@@ -329,3 +329,7 @@ a { color: var(--accent); }
 .tree-node .tree-node { margin-left: 12px; padding-left: 8px; border-left: 2px solid var(--line); }
 .tree-node.depth-4 .tree-node { margin-left: 0; padding-left: 0; border-left: none; }
 .tree-post { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin: 8px 0; }
+
+/* kept revocations */
+.relay-item { display: flex; align-items: center; gap: 8px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; overflow-wrap: anywhere; }
+.relay-item .identicon { flex: none; border-radius: 4px; }

@@ -293,6 +293,21 @@ check('bad block dropped', typeof (await S.receive(bad)).error, 'string');
 	await S4.setTrust(id, true);
 	await S4.sent(R.payload([r.retired]), { arrival: 7000 });
 	check('sent: retired at once', S4.keyInfo(id).revoked.retired, 7000);
+
+	// repeating kept revocations: the one sent longest ago first, a key's
+	// retired one left out once its compromised one is kept
+	check('relay: on by default', await S1.relayFill(), true);
+	await S1.setRelayFill(false);
+	check('relay: turned off', await S1.relayFill(), false);
+	const k2 = C.newPrivateKey(), id2 = hex(C.fingerprint(k2));
+	await S1.setTrust(id2, true);
+	await S1.receive(R.payload([C.revocations(k2).retired]), { arrival: 8000 });
+	let list = await S1.relayable();
+	check('relay: compromised over retired, never sent ones by arrival', list.map((r) => `${r.key === id ? 'k1' : 'k2'} ${r.reason}`).join(), 'k1 compromised,k2 retired');
+	check('relay: the bytes as kept', hex(list[0].bytes), hex(r.compromised));
+	await S1.relayed([list[0]], 9000);
+	list = await S1.relayable();
+	check('relay: the one just sent goes last', list.map((x) => `${x.key === id ? 'k1' : 'k2'} ${x.sent}`).join(), 'k2 0,k1 9000');
 }
 
 console.log(failed ? `${failed} of ${checks} checks failed` : `all ${checks} checks passed`);
