@@ -189,7 +189,8 @@ fieldset.choice label:has(input:disabled) { color: var(--dim); }
 .key-card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 0 0 8px; }
 .key-card-head { display: flex; align-items: center; gap: 8px; }
 .key-card-head strong { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.key-card .remove-confirm[hidden] { display: none; }
+.key-card .remove-confirm[hidden], .key-card .revoke-confirm[hidden] { display: none; }
+#hex { font-family: ui-monospace, monospace; }
 details#new-key { margin: 8px 0; }
 details#new-key summary { cursor: pointer; color: var(--accent); min-height: 44px; display: flex; align-items: center; }
 

@@ -612,10 +612,54 @@ function keyCard(k) {
 	remove.onclick = () => {
 		removeArea.hidden = !removeArea.hidden;
 	};
+	// sending one of its revocations, permanent, so behind typing REVOKE
+	const reason = view.el('select');
+	reason.setAttribute('aria-label', 'reason');
+	reason.append(view.el('option', 'retired: no longer used'), view.el('option', 'compromised: lost or stolen'));
+	reason.options[0].value = 'retired';
+	reason.options[1].value = 'compromised';
+	reason.value = 'compromised';
+	const word = view.el('input');
+	word.placeholder = 'REVOKE';
+	word.setAttribute('aria-label', 'type REVOKE to send the revocation');
+	word.autocomplete = 'off';
+	const revokeNow = view.el('button.small.danger', 'Send revocation');
+	revokeNow.disabled = true;
+	word.oninput = () => {
+		revokeNow.disabled = word.value !== 'REVOKE';
+	};
+	const revokeStop = view.el('button.small', 'Stop');
+	revokeStop.hidden = true;
+	const revokeStatus = view.el('p.dim');
+	revokeNow.onclick = async () => {
+		revokeNow.disabled = true;
+		const say = (t) => {
+			revokeStatus.textContent = t;
+		};
+		try {
+			const d = { payload: fromHex(k.revocations[reason.value]), o: await own(), raw: true };
+			if (await transmit(d, 'longer', say, revokeStop))
+				word.value = '';
+		} catch (err) {
+			say(`Can't send: ${err.message}`);
+		}
+		revokeNow.disabled = word.value !== 'REVOKE';
+	};
+	const revokeArea = view.el('div.revoke-confirm',
+		view.el('p.warn', 'A revocation can never be taken back: stations that trust this key mark it retired, or stop trusting every post by it if compromised. Type REVOKE to send it.'),
+		reason,
+		view.el('div.row', word, revokeNow, revokeStop),
+		revokeStatus);
+	revokeArea.hidden = true;
+	const revoke = view.el('button.small', 'Revoke…');
+	revoke.onclick = () => {
+		revokeArea.hidden = !revokeArea.hidden;
+	};
 	return view.el('article.key-card',
 		view.el('div.key-card-head', view.identicon(fromHex(k.key)), view.el('strong', k.label), view.el('span.key', k.key.slice(0, 8))),
 		labelField, callFieldEl, nameField,
-		view.el('div.row', print, remove),
+		view.el('div.row', print, revoke, remove),
+		revokeArea,
 		removeArea);
 }
 
@@ -683,8 +727,13 @@ function setKind(k) {
 	kind = k;
 	for (const b of document.querySelectorAll('.segmented [role=radio]'))
 		b.setAttribute('aria-checked', b.dataset.kind === k);
+	$('signing').hidden = k === 'hex';
 	$('subject-field').hidden = k !== 'topic';
 	$('to-field').hidden = k !== 'topic';
+	$('text-field').hidden = k === 'hex';
+	$('hex-hint').hidden = k !== 'hex';
+	$('hex-field').hidden = k !== 'hex';
+	$('hex-preview').hidden = k !== 'hex';
 	$('reply-to').hidden = k !== 'reply' || !replyTo;
 	$('reply-hint').hidden = k !== 'reply' || !!replyTo;
 	if (replyTo)
@@ -761,6 +810,16 @@ function address() {
 // the post as it stands, signed, or null with the reason
 async function draft() {
 	const o = await own();
+	if (kind === 'hex') {
+		const h = $('hex').value.replace(/\s+/g, '').toLowerCase();
+		if (!h)
+			return { why: 'Paste a payload in hex.' };
+		if (!/^[0-9a-f]+$/.test(h))
+			return { why: 'Only hex digits, spaces and line breaks.' };
+		if (h.length % 2)
+			return { why: 'An odd number of hex digits.' };
+		return { payload: fromHex(h), o, raw: true };
+	}
 	const k = keys && (await keys.list()).find((x) => x.key === $('signer').value);
 	if (!k)
 		return { why: keys ? 'Every post is signed: add a key in Station first.' : 'CRYPTO failed to load, so nothing can be signed.' };
@@ -802,6 +861,7 @@ async function estimate() {
 		d = { why: err.message };
 	}
 	$('send-button').disabled = !d.payload || !!sending;
+	$('hex-preview').replaceChildren();
 	if (!d.payload) {
 		$('send-info').textContent = d.why;
 		return;
@@ -814,6 +874,20 @@ async function estimate() {
 		return `${info.modulation} ${info.codeRate}, decodes from ${needs(p.modes[0])} dB`;
 	};
 	const fits = pick(E, d.payload.length, d.o) !== null;
+	if (d.raw) {
+		// what stations would make of it, sent all the same
+		const a = station.analyze(d.payload);
+		$('hex-preview').replaceChildren(a.error ? view.el('div.bad', `malformed: ${a.error}; stations drop it`) : a.nodes.length ? view.nodes(a.nodes) : view.el('div.dim', 'empty frame'));
+		$('send-choice').hidden = true;
+		try {
+			const p = plan(E, d, 'longer');
+			$('send-info').textContent = `${view.bytes(d.payload.length)} in one frame of ${p.airtime.toFixed(1)} s, ${describe(p)}.${anon}`;
+		} catch (err) {
+			$('send-info').textContent = err.message;
+			$('send-button').disabled = true;
+		}
+		return;
+	}
 	$('send-choice').hidden = fits;
 	if (fits) {
 		const p = plan(E, d, 'fragments');
@@ -846,7 +920,7 @@ async function estimate() {
 function plan(E, d, how) {
 	const { snr, redundancy } = d.o;
 	let seconds = d.o.seconds;
-	if (how === 'longer') {
+	if (how === 'longer' && pick(E, d.payload.length, { seconds, snr }) === null) {
 		seconds = secondsFor(E, d.payload.length, snr);
 		if (seconds === null)
 			throw new RangeError(`too long for one frame at ${snr} dB`);
@@ -868,35 +942,61 @@ const typed = () => {
 $('introduce').onchange = estimate;
 $('subject').oninput = typed;
 $('text').oninput = typed;
+$('hex').oninput = typed;
+
+// Puts a draft on the air: in one frame if it fits the settings, otherwise
+// as Fragments or, with how = 'longer', in one longer frame. Logs the
+// station's own frames, tells say() how it goes and shows stop while
+// sending. Resolves to true once all of it went out.
+async function transmit(d, how, say, stop) {
+	if (sending)
+		throw new Error('already sending');
+	const ctx = await output();
+	const E = await encoderFor(ctx.sampleRate);
+	const callSign = d.o.callSign || 'ANONYMOUS';
+	const s = plan(E, d, how);
+	const c = chain(E, s.frames, { seconds: s.seconds, snr: s.snr, callSign });
+	// the station's own frames, kept as sent
+	const arrival = Date.now();
+	for (const [i, f] of s.frames.entries()) {
+		const e = await station.sent(f, { arrival, callSign: d.o.callSign || null, mode: c.modes[i] });
+		add(() => view.entry(e));
+	}
+	deafUntil = Infinity;
+	sending = play(ctx, c.audio);
+	$('send-button').disabled = true;
+	stop.onclick = () => sending?.stop();
+	stop.hidden = false;
+	say(`Sending ${s.frames.length === 1 ? 'one frame' : `${s.frames.length} fragments`}, ${c.seconds.toFixed(1)} s …`);
+	status('sending', 'ok');
+	try {
+		const complete = await sending.done;
+		say(complete ? 'Sent.' : 'Stopped.');
+		return complete;
+	} finally {
+		sending = null;
+		deafUntil = Date.now() + 1500;
+		stop.hidden = true;
+		status(receiver ? 'listening' : 'not listening');
+		refreshStorage();
+		estimate();
+	}
+}
 
 $('send-button').onclick = async () => {
 	$('send-button').disabled = true;
+	const say = (t) => {
+		$('send-status').textContent = t;
+	};
 	try {
 		const d = await draft();
 		if (!d.payload)
 			throw new Error(d.why);
-		const ctx = await output();
-		const E = await encoderFor(ctx.sampleRate);
-		const callSign = d.o.callSign || 'ANONYMOUS';
-		const how = document.querySelector('input[name=how]:checked')?.value ?? 'fragments';
-		const s = plan(E, d, pick(E, d.payload.length, d.o) !== null ? 'fragments' : how);
-		const c = chain(E, s.frames, { seconds: s.seconds, snr: s.snr, callSign });
-		// the station's own frames, kept as sent
-		const arrival = Date.now();
-		for (const [i, f] of s.frames.entries()) {
-			const e = await station.sent(f, { arrival, callSign: d.o.callSign || null, mode: c.modes[i] });
-			add(() => view.entry(e));
-		}
-		deafUntil = Infinity;
-		sending = play(ctx, c.audio);
-		$('send-stop').hidden = false;
-		$('send-status').textContent = `Sending ${s.frames.length === 1 ? 'one frame' : `${s.frames.length} fragments`}, ${c.seconds.toFixed(1)} s …`;
-		status('sending', 'ok');
-		const complete = await sending.done;
-		$('send-status').textContent = complete ? 'Sent.' : 'Stopped.';
-		if (complete) {
+		const how = d.raw ? 'longer' : document.querySelector('input[name=how]:checked')?.value ?? 'fragments';
+		if (await transmit(d, how, say, $('send-stop'))) {
 			$('text').value = '';
 			$('subject').value = '';
+			$('hex').value = '';
 			$('introduce').checked = false;
 			$('to-kind').value = '';
 			$('to-value').value = '';
@@ -905,17 +1005,10 @@ $('send-button').onclick = async () => {
 			setKind(kind === 'reply' ? 'topic' : kind);
 		}
 	} catch (err) {
-		$('send-status').textContent = `Can't send: ${err.message}`;
+		say(`Can't send: ${err.message}`);
+		estimate();
 	}
-	sending = null;
-	deafUntil = Date.now() + 1500;
-	$('send-stop').hidden = true;
-	status(receiver ? 'listening' : 'not listening');
-	refreshStorage();
-	estimate();
 };
-
-$('send-stop').onclick = () => sending?.stop();
 
 await fillOwn();
 await trustOwn();
