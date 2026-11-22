@@ -282,6 +282,7 @@ button.trust { flex: none; }
 }
 .trust-dialog::backdrop { background: rgb(0 0 0 / 0.5); }
 .trust-dialog h3 { margin: 0 0 12px; }
+.trust-dialog p { overflow-wrap: anywhere; }
 .trust-dialog .row { justify-content: flex-end; }
 .fingerprint { font-family: ui-monospace, monospace; font-size: 15px; letter-spacing: 0.02em; }
 .fingerprint span { display: block; }

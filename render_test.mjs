@@ -1,7 +1,9 @@
 // Tests for render.js. Run with: node render_test.mjs
 // The DOM parts run in the browser; here only what needs no document.
 
-import { animatedWebP, hex, short, bytes, identiconCells } from './render.js';
+import { animatedWebP, hex, short, bytes, identiconCells, fileOf } from './render.js';
+import * as R from './records.js';
+import { blake2s } from './blake2s.js';
 
 let checks = 0, failed = 0;
 
@@ -45,6 +47,21 @@ check('MiB', bytes(3 * 1048576), '3.0 MiB');
 	check('identicon other key, other picture', JSON.stringify(identiconCells(other)) !== JSON.stringify({ colour, cells }), true);
 	check('identicon all cells', identiconCells(new Uint8Array(32).fill(255)).cells.length, 25);
 	check('identicon no cells', identiconCells(new Uint8Array(32)).cells.length, 0);
+}
+
+// files to save: only a MIME escape names itself, the rest by their hash
+{
+	const part = (rec) => R.parse(R.payload([rec]))[0];
+	const c2 = fileOf(part(R.codec2(8, Uint8Array.of(1, 2, 3, 4, 5, 6, 7))));
+	check('Codec2: the .c2 header back', hex(c2.data), 'c0dec2010008' + '00' + '01020304050607');
+	check('Codec2: named by its hash', c2.name, `${hex(blake2s(c2.data))}.c2`);
+	const named = fileOf(part(R.mime('application/pdf', 'log.pdf', Uint8Array.of(37, 80))));
+	check('MIME with a name', [named.name, hex(named.data)].join(), 'log.pdf,2550');
+	check('MIME without a name', fileOf(part(R.mime('application/pdf', '', Uint8Array.of(37, 80)))).name, `${hex(blake2s(Uint8Array.of(37, 80)))}.pdf`);
+	check('MIME of a type without an extension', fileOf(part(R.mime('application/x-msdownload', '', Uint8Array.of(77, 90)))).name.endsWith('.bin'), true);
+	const pic = Uint8Array.of(1, 2, 3);
+	check('WebP', fileOf(part(R.webp(pic))).name, `${hex(blake2s(pic))}.webp`);
+	check('not a file', fileOf(part(R.textUTF8('x'))), null);
 }
 
 console.log(failed ? `${failed} of ${checks} checks failed` : `all ${checks} checks passed`);

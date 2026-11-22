@@ -354,7 +354,110 @@ function picture(n, label, key) {
 	};
 	if (trusted(key))
 		queueMicrotask(() => b.onclick());
-	return el('div.part', b, label === 'avatar' && key ? el('span.dim', ` for fingerprint ${key.slice(0, 8)}`) : '');
+	return el('div.part', b, label === 'avatar' && key ? el('span.dim', ` for fingerprint ${key.slice(0, 8)}`) : '', ' ', saveButton(n, key));
+}
+
+// ------------------------------------------------------------- saving
+
+// Extensions for the content types a MIME escape may name; anything else
+// is saved as .bin, so no content type turns a file into a program by
+// its name (SPEC.md, File names only on MIME escape)
+const EXTENSIONS = Object.freeze({
+	'text/plain': 'txt', 'text/markdown': 'md', 'text/csv': 'csv',
+	'application/pdf': 'pdf', 'application/json': 'json', 'application/gpx+xml': 'gpx',
+	'application/zip': 'zip', 'application/gzip': 'gz',
+	'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp', 'image/avif': 'avif',
+	'audio/ogg': 'ogg', 'audio/opus': 'opus', 'audio/mpeg': 'mp3', 'audio/wav': 'wav', 'audio/flac': 'flac',
+	'video/mp4': 'mp4', 'video/webm': 'webm',
+});
+
+// A media part as a file: { name, data }. Only a MIME escape brings its
+// own name; everything else is named by the BLAKE2s-256 of the file, hex,
+// with the extension of its type. Codec2 gets the 7-byte .c2 header back:
+// magic C0 DE C2, version 1.0, the mode byte, flags 0.
+export function fileOf(n) {
+	let data, ext;
+	switch (n.type) {
+	case T.WEBP:
+	case T.AVATAR:
+		data = n.body;
+		ext = 'webp';
+		break;
+	case T.CODEC2:
+		data = new Uint8Array(6 + n.body.length);
+		data.set([0xC0, 0xDE, 0xC2, 1, 0, n.mode, 0]);
+		data.set(n.body.subarray(1), 7);
+		ext = 'c2';
+		break;
+	case T.MIME:
+		if (n.fileName)
+			return { name: n.fileName, data: n.content };
+		data = n.content;
+		ext = EXTENSIONS[n.mime] ?? 'bin';
+		break;
+	default:
+		return null;
+	}
+	return { name: `${hex(blake2s(data))}.${ext}`, data };
+}
+
+function download(f) {
+	const a = el('a');
+	a.href = URL.createObjectURL(new Blob([f.data], { type: 'application/octet-stream' }));
+	a.download = f.name;
+	document.body.append(a);
+	a.click();
+	a.remove();
+	setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+}
+
+// A question in a dialog, Cancel first and focused. Resolves to true or
+// false.
+function ask(title, lines, yes) {
+	const cancel = el('button', 'Cancel');
+	const ok = el('button.danger', yes);
+	const dialog = el('dialog.trust-dialog', el('h3', title), ...lines.map((l) => el('p', l)), el('div.row', cancel, ok));
+	document.body.append(dialog);
+	return new Promise((resolve) => {
+		const done = (answer) => {
+			dialog.close();
+			dialog.remove();
+			resolve(answer);
+		};
+		cancel.onclick = () => done(false);
+		ok.onclick = () => done(true);
+		dialog.oncancel = (e) => {
+			e.preventDefault();
+			done(false);
+		};
+		dialog.showModal();
+		cancel.focus();
+	});
+}
+
+// Save a part: right away under a trusted key's signature, otherwise only
+// after two questions (SPEC.md, Downloads)
+function saveButton(n, key) {
+	const f = fileOf(n);
+	const sure = trusted(key);
+	const b = el('button.small', sure ? 'Save' : 'Save…');
+	b.title = f.name;
+	b.onclick = async () => {
+		if (!sure) {
+			if (!await ask('Save a file from a stranger?', [
+				key ? 'It is signed by a key you don\'t trust.' : 'No key you trust signed it.',
+				'A file can harm your computer when opened.',
+			], 'Continue'))
+				return;
+			if (!await ask('Are you really sure?', [
+				`${f.name}, ${bytes(f.data.length)}`,
+				'Its name and type prove nothing about what it really contains. Open it only with a program you trust.',
+			], 'Save the file'))
+				return;
+		}
+		download(f);
+	};
+	return b;
 }
 
 // whether a Revoke counts: not where it is, kept, or waiting for the key
@@ -403,9 +506,9 @@ function leaf(n, key = null) {
 			return el('div.part.dim', `avatar ignored: ${n.ignored}`);
 		return picture(n, 'avatar', key);
 	case T.CODEC2:
-		return el('div.part', `🔊 Codec2 mode ${n.mode}, ${bytes(n.body.length - 1)}`);
+		return el('div.part', `🔊 Codec2 mode ${n.mode}, ${bytes(n.body.length - 1)} `, saveButton(n, key));
 	case T.MIME:
-		return el('div.part', '📄 ', n.fileName || 'unnamed', el('span.dim', ` ${n.mime}, ${bytes(n.content.length)}`));
+		return el('div.part', '📄 ', n.fileName || 'unnamed', el('span.dim', ` ${n.mime}, ${bytes(n.content.length)} `), saveButton(n, key));
 	case T.FRAGMENT:
 		return el('div.part.dim', `Fragment ${n.index} of ${n.N}, ${n.K} needed, root ${short(n.root)}`, n.verified ? '' : ' (unchecked)');
 	case T.REQUEST_POST:
