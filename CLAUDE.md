@@ -32,7 +32,7 @@ Match the existing history:
 
 ### Modules
 
-- records.js parses and encodes records: type classes, lengths, prefix chains and the ordering rule, Bundle, posts, value checks, the error table, post IDs, Keyed tags, WebP sizes and the Avatar limits (`avatarProblem`: square, 128x128 to 512x512, at most 8 KiB; others parse with `ignored`). A bad signature drops the frame; a Reply takes From prefixes but never To prefixes.
+- records.js parses and encodes records: type classes, lengths, fixed-size optional records without a length (0x80–0xBF, size by block of eight: 1, 2, 4, 6, 8, 12, 16, 32 bytes; Temperature, Humidity, Voltage, Pressure, Wind, Altitude, Position, Mention), prefix chains and the ordering rule, Bundle, posts, value checks, the error table, post IDs, Keyed tags, WebP sizes and the Avatar limits (`avatarProblem`: square, 128x128 to 512x512, at most 8 KiB; others parse with `ignored`). A bad signature drops the frame; a Reply takes From prefixes but never To prefixes.
 - crypto.js wraps crypto.wasm (CRYPTO's docs/crypto.wasm at 2339005): keys, signing, the `verify` callback for the parser, revocations.
 - hydra.js wraps hydra.wasm (HYDRA's docs/hydra.wasm at 87fa55a): planning, encoding, `verifyBlock`, decoding, the relay check, and a Reassembler that makes Request-Root records.
 - robusto.js wraps the four ROBUSTO modules (aicodix/modem's robusto branch, docs/temp/ at a469d2e, whose decoder no longer reports a frame that ends right before the next with that frame's call sign, mode and length): `loadEncoder(rate)` picks modes and turns payloads and pings into audio, `loadDecoder(rate)` turns samples into events (sync, meta, ping, frame, error).

@@ -33,6 +33,7 @@ length  := u8 0..254              the length itself
 - **One encoding per length.** Lengths below 255 must use the single byte; the long form starts at 255. Anything else is malformed.
 - **End of payload.** Type 0x00 has no length and stops parsing. It only appears where the payload is padded: ROBUSTO and HYDRA both pad with zeros, so padding parses as the end. Records are never padded, so a 0x00 inside a record is malformed.
 - **Fixed-size core records** carry no length either: Request-Post, Request-Root and the two Revokes. Their size follows from the type, and for Request-Root from its header. Skipping never needs it, since an unknown core type drops the frame.
+- **Fixed-size optional records** (0x80–0xBF) carry no length: the type alone gives the size, in eight blocks of eight types, each block with one size: 0x80–0x87 1 byte, 0x88–0x8F 2, 0x90–0x97 4, 0x98–0x9F 6, 0xA0–0xA7 8, 0xA8–0xAF 12, 0xB0–0xB7 16, 0xB8–0xBF 32. A client skips one it doesn't know by that size, so new fixed-size types stay optional. Every record whose content has one fixed size goes here; a type with optional fields becomes separate types instead.
 - **Prefixes** carry no length. They consist of a type and a fixed-size handle or a Text record as handle, and apply to exactly the next record.
 - **Timestamps** are u32 Unix seconds (valid until 2106).
 
@@ -45,7 +46,9 @@ The class of a type follows from its number alone, so a parser knows what to do 
 | 0x00 | End of payload | none | — |
 | 0x01–0x1F | Prefix, must know | none | drop the frame |
 | 0x20–0x2F | Core record, must know | yes, unless fixed-size | drop the frame |
-| 0x30–0xEF | Optional record | yes | skip it |
+| 0x30–0x7F | Optional record | yes | skip it |
+| 0x80–0xBF | Optional record, fixed size | none, the block gives it | skip it |
+| 0xC0–0xEF | Optional record | yes | skip it |
 | 0xF0–0xFE | Must-understand record | yes | drop the innermost enclosing record, or the frame at the top level |
 | 0xFF | Reserved | — | drop the frame |
 
@@ -68,13 +71,6 @@ The class of a type follows from its number alone, so a parser knows what to do 
 | 0x27 | Request-Root | header[u16] root[16 or 32], no length |
 | 0x28 | Revoke-Retired | nothing, no length |
 | 0x29 | Revoke-Compromised | nothing, no length |
-| 0x30 | Mention | post ID[32] |
-| 0x31 | Position | lat[4] lon[4] fix time[4], optional alt[4] acc[2] |
-| 0x32 | Temperature | i16, 0.01 °C |
-| 0x33 | Humidity | u16, 0.01 % relative |
-| 0x34 | Pressure | u32, Pa |
-| 0x35 | Wind | direction[2] speed[2], optional gust[2] |
-| 0x36 | Voltage | u16, mV |
 | 0x40 | Text-UTF-8 | text |
 | 0x41 | Text-GB18030 | text |
 | 0x42 | Text-Table | table index[1] text |
@@ -83,6 +79,14 @@ The class of a type follows from its number alone, so a parser knows what to do 
 | 0x50 | Codec2 | mode[1] frames |
 | 0x51 | WebP | image or animation |
 | 0x52 | Avatar | WebP picture or animation |
+| 0x88 | Temperature | i16, 0.01 °C, no length |
+| 0x89 | Humidity | u16, 0.01 % relative, no length |
+| 0x8A | Voltage | u16, mV, no length |
+| 0x90 | Pressure | u32, Pa, no length |
+| 0x91 | Wind | direction[2] speed[2], no length |
+| 0x92 | Altitude | i32, mm above mean sea level, no length |
+| 0xA8 | Position | lat[4] lon[4] fix time[4], no length |
+| 0xB8 | Mention | post ID[32], no length |
 | 0xEF | MIME escape | type/subtype and name, each zero-terminated, then content |
 | 0xF0… | Replaces, Retract, … | reserved for later |
 
@@ -119,7 +123,7 @@ Every parser must know these. A post enters the BBS tree only inside Signed; a K
 - **Fragment** (0x25): one HYDRA block; the record length is the block length. See Fragments.
 - **Request-Post** (0x26): full 32-byte post ID, no length byte. Any station holding the post may answer, at whatever size suits it. Short prefixes are never used in requests.
 - **Request-Root** (0x27): a u16 header, then a HYDRA root, no length byte. Header bits 0–9: number of blocks still needed minus 1 (1–1024); bits 10–14: reserved, must be 0; bit 15: hash flag as in HYDRA (0 = 16-byte root, 1 = 32-byte root). The record is then exactly 19 or 35 bytes with its type. Responders pick random indices. Answer in the same ROBUSTO family (QPSK/QAM 0–25 or BPSK 26–31) as the request, at the same or a lower index; a station may also ignore it.
-- **Bare**** messages** are optional records outside a Post, such as Text (0x40–0x4F), Position or a sensor reading: a short message without timestamp, e.g. “Hungry” in 12 bytes. A sensor in the wild can send a bare reading, such as From-Call + Temperature in 11 bytes, and a beacon a bare From-Call + Position in 21; a station sending for itself can leave the call sign to the ROBUSTO preamble. Several bare records may share a payload or a Bundle, and their time is the arrival time. Not referenceable, never in the tree; logged, and shown in an inbox when a To prefix matches. Media and Mentions may go bare too, for experiments; the one bare record with an effect is a signed Avatar.
+- **Bare**** messages** are optional records outside a Post, such as Text (0x40–0x4F), Position or a sensor reading: a short message without timestamp, e.g. “Hungry” in 12 bytes. A sensor in the wild can send a bare reading, such as From-Call + Temperature in 10 bytes, and a beacon a bare From-Call + Position in 20; a station sending for itself can leave the call sign to the ROBUSTO preamble. Several bare records may share a payload or a Bundle, and their time is the arrival time. Not referenceable, never in the tree; logged, and shown in an inbox when a To prefix matches. Media and Mentions may go bare too, for experiments; the one bare record with an effect is a signed Avatar.
 
 ## Post layout
 
@@ -130,12 +134,12 @@ Topic := timestamp[4] subject:Text part*
 Reply := timestamp[4] parent[32] part*
 ```
 
-- **Fixed positions, no fields.** The subject is a Text record in any text encoding, mandatory in every Topic; replies show the root's subject. The parent is the full 32-byte post ID of the one post a reply answers. A reply with a subject or a Topic with a parent can't be written. Mention (0x30), an exact link to another post, is the only optional field.
+- **Fixed positions, no fields.** The subject is a Text record in any text encoding, mandatory in every Topic; replies show the root's subject. The parent is the full 32-byte post ID of the one post a reply answers. A reply with a subject or a Topic with a parent can't be written. Mention (0xB8), an exact link to another post, is the only optional field.
 - **Where a post goes.** A Topic goes where its To prefixes send it: a board or a person. A Reply never has a To prefix: it goes where its parent is, and since its ID covers the parent ID, it belongs to exactly one conversation. It may carry From-Call and From-Name, so a key that only replies can still say who it is. Inboxes follow the whole conversation, not only the user's own posts, so a follow-up to the other side's own post still arrives. A station without the parent can fetch it with Request-Post. Where a post could still belong in more than one place, the GUI shows the alternative paths.
 - **Parts:** at most one text part. Media parts follow the guideline in Client policy, not a format rule.
 - **Empty posts** (no text, media, Mention, Position or sensor reading) are dropped; pings cover that case. A part of unknown type counts, so a post with a new media type still reaches old clients. A post holding only Mentions is valid: picking posts and a recipient is enough to point someone at them. A post may carry several Mentions, each post ID at most once.
-- **Position (0x31):** a WGS 84 point in the de facto binary convention of u-blox, MAVLink and Meshtastic: latitude, then longitude, each a little-endian i32 in units of 10⁻⁷ degrees (about 1 cm), then the fix time, the moment the receiver measured the point, as u32 Unix seconds in UTC. The fix time belongs to the position and is independent of any post timestamp. The length says what follows: 12 bytes is the point and fix time alone, 16 adds altitude above mean sea level in millimetres (i32, as in MAVLink; enough for balloons), 18 adds horizontal accuracy in metres (u16, 0 = unknown). Any other length is malformed, as is a latitude outside ±90° or a longitude outside ±180°. At most one Position per post. A post holding only a Position is valid: “here I am” needs no text. Clients show it as a map pin and export it as a `geo:` URI (RFC 5870) or GPX.
-- **Sensor readings (0x32–0x3****6****):** common weather values, each its own type, at most one of each per post, measured at the post's timestamp and, if present, its Position. Temperature: i16 in 0.01 °C. Humidity: u16 relative humidity in 0.01 %, 0–10000. Pressure: u32 in pascals (101325 at sea level, a few hundred at burst altitude). Wind: direction the wind blows from, u16 in 0.01° clockwise from true north (0–35999), then speed u16 in 0.01 m/s; 6 bytes adds the gust speed in the same unit. Voltage: u16 battery voltage in millivolts (up to 65.5 V), so a station in the wild can report that it is alive and for how long. A wrong length or an out-of-range value is malformed. Other sensors get their own types when they are needed, never a generic telemetry container.
+- **Position (0xA8):** a WGS 84 point in the de facto binary convention of u-blox, MAVLink and Meshtastic: latitude, then longitude, each a little-endian i32 in units of 10⁻⁷ degrees (about 1 cm), then the fix time, the moment the receiver measured the point, as u32 Unix seconds in UTC: 12 bytes. The fix time belongs to the position and is independent of any post timestamp. A latitude outside ±90° or a longitude outside ±180° is malformed. At most one Position per post. A post holding only a Position is valid: “here I am” needs no text. Clients show it as a map pin and export it as a `geo:` URI (RFC 5870) or GPX.
+- **Sensor readings (0x88–0x8A, 0x90–0x92):** common values, each its own fixed-size type, at most one of each per post, measured at the post's timestamp and, if present, its Position. Temperature: i16 in 0.01 °C. Humidity: u16 relative humidity in 0.01 %, 0–10000. Voltage: u16 battery voltage in millivolts (up to 65.5 V), so a station in the wild can report that it is alive and for how long. Pressure: u32 in pascals (101325 at sea level, a few hundred at burst altitude). Wind: direction the wind blows from, u16 in 0.01° clockwise from true north (0–35999), then speed u16 in 0.01 m/s. Altitude: i32 in millimetres above mean sea level (as in MAVLink; enough for balloons), from a GNSS fix or from pressure, so it stands alone or beside a Position. An out-of-range value is malformed. Other sensors get their own types when they are needed, never a generic telemetry container; gusts and the accuracy of a fix are left for later, each a type of its own.
 - **File names only on MIME escape****.** “Save as” uses the name a MIME escape carries; otherwise, and for every other media type, it names the file by the hex hash of its content plus the extension from the content type. Neither the name nor the type says what a file really contains.
 
 **Text encodings.** UTF-8 is the default. GB 18030 gets its own type because it is the Chinese standard, a superset of GBK and GB 2312, and covers all of Unicode. SCSU (Unicode Technical Standard #6) gets its own type too: about one byte per character for alphabetic scripts, including the Indic and Southeast Asian scripts that have no legacy encoding at all, and about two for CJK, while covering all of Unicode. Text-SCSU content is at most 2²⁰ bytes, and like invalid UTF-8, invalid SCSU (a reserved tag, an undefined window, truncated input, an unpaired surrogate) is malformed; a client without an SCSU decoder can't tell and shows a short hash. Browsers don't decode it, so clients bring a small one, such as the [SCSU module](https://github.com/xdsopl/scsu) (plain JavaScript or 7 KB of WebAssembly; [try it in the browser](https://xdsopl.github.io/scsu/)). Every other encoding goes through the table type: one index byte into a frozen list based on the WHATWG Encoding Standard, which browsers decode with `TextDecoder`. The sender picks whichever encoding is smallest; receivers convert to UTF-8. Decoding follows the WHATWG Encoding Standard, as browsers implement it with `TextDecoder`; other decoders (ICU in Node.js, for example) differ for some encodings and are no reference. Senders need their own encoders, generated at startup by decoding every byte sequence with those decoders, and send only what decodes back to the same text.
@@ -212,7 +216,7 @@ Malformed data drops the whole frame, since it usually means corruption; unknown
 | Prefix order violated, duplicate field, prefix with no record after it (or only an empty Bundle), any To prefix applying to a Reply (directly or through a Bundle) | drop the frame |
 | Invalid UTF-8 in any Text-UTF-8 record, invalid or too long SCSU in any Text-SCSU record, invalid base-40 value, empty call sign | drop the frame |
 | 0x00 inside a record | drop the frame |
-| Unknown optional type (0x30–0xEF) | skip the record |
+| Unknown optional type (0x30–0xEF), by its length or, in 0x80–0xBF, by its block's size | skip the record |
 | Unknown must-understand type (0xF0–0xFE) | drop the innermost enclosing record, usually the Post; directly in Signed, the whole Signed; at the top level, the frame |
 | Signed records larger than 2²³ − 14 bytes | drop the frame |
 | Fragment breaking the limits or failing `verify_block`, Fragment inside a reassembled payload | drop the frame |

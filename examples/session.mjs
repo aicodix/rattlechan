@@ -77,9 +77,9 @@ export async function session({ file, rate = 48000, now = Math.floor(Date.now() 
 
 	// an unsigned weather station, outside the GUI
 	post('DL2XYZ-7', 'bare weather readings', R.payload([R.fromCall('DL2XYZ-7'), R.bundle(
-		R.position({ lat: 507332000, lon: 71011000, time: t0 + 170, alt: 61000 }),
+		R.position({ lat: 507332000, lon: 71011000, time: t0 + 170 }), R.altitude(61000),
 		R.temperature(735), R.humidity(8120), R.pressure(101180),
-		R.wind({ direction: 24000, speed: 420, gust: 910 }), R.voltage(3920))]));
+		R.wind({ direction: 24000, speed: 420 }), R.voltage(3920))]));
 
 	// a board, in Russian, in whatever encoding is smallest
 	post('R1ABC', 'unsigned Topic to the board "weather"', compose({

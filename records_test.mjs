@@ -96,8 +96,8 @@ check('call sign value 40^9 - 1', R.decodeCall(bytes(0xFF, 0xFF, 0xFF, 0x27, 0x6
 
 // ------------------------------------------------- sizes from the spec
 
-check('From-Call + Temperature is 11 bytes', R.payload([R.fromCall('DL1ABC'), R.temperature(2150)]).length, 11);
-check('From-Call + Position is 21 bytes', R.payload([R.fromCall('DL1ABC'), R.position({ lat: 0, lon: 0, time: 0 })]).length, 21);
+check('From-Call + Temperature is 10 bytes', R.payload([R.fromCall('DL1ABC'), R.temperature(2150)]).length, 10);
+check('From-Call + Position is 20 bytes', R.payload([R.fromCall('DL1ABC'), R.position({ lat: 0, lon: 0, time: 0 })]).length, 20);
 check('Keyed overhead is 18 bytes', R.keyed(secret).length, 18);
 check('Signed overhead is 98 bytes', R.signed(alice, fill(64, 0)).length, 98);
 check('Signed(key, Revoke) is 99 bytes', R.signed(alice, fill(64, 0), R.revoke('retired')).length, 99);
@@ -238,20 +238,31 @@ check('Request-Root is 19 or 35 bytes', R.requestRoot(1, fill(16, 0)).length + '
 	p = parses('mention-only post', R.payload([R.reply(ts, parentId, R.mention(fill(32, 1)), R.mention(fill(32, 2)))]));
 	check('mention-only post is kept', p[0].dropped, undefined);
 	check('two mentions', p[0].mentions.length, 2);
-	p = parses('position-only post', R.payload([R.reply(ts, parentId, R.position({ lat: 525200000, lon: 134050000, time: 1763379990, alt: 34000, acc: 5 }))]));
+	p = parses('position-only post', R.payload([R.reply(ts, parentId, R.position({ lat: 525200000, lon: 134050000, time: 1763379990 }))]));
 	check('position latitude', p[0].position.lat, 525200000);
 	check('position longitude', p[0].position.lon, 134050000);
-	check('position altitude', p[0].position.alt, 34000);
-	check('position accuracy', p[0].position.acc, 5);
 	check('position fix time is its own value', p[0].position.time + ',' + p[0].timestamp, '1763379990,' + ts);
 	p = parses('weather post', R.payload([R.reply(ts, parentId, R.temperature(-1234), R.humidity(10000),
-		R.pressure(101325), R.wind({ direction: 35999, speed: 512, gust: 900 }), R.voltage(3700))]));
+		R.pressure(101325), R.wind({ direction: 35999, speed: 512 }), R.voltage(3700), R.altitude(-4000))]));
 	const v = Object.fromEntries(p[0].parts.map((x) => [x.name, x]));
 	check('temperature', v.TEMPERATURE.value, -1234);
 	check('humidity', v.HUMIDITY.value, 10000);
 	check('pressure', v.PRESSURE.value, 101325);
-	check('wind', [v.WIND.direction, v.WIND.speed, v.WIND.gust].join(), '35999,512,900');
+	check('wind', [v.WIND.direction, v.WIND.speed].join(), '35999,512');
 	check('voltage', v.VOLTAGE.value, 3700);
+	check('altitude', v.ALTITUDE.value, -4000);
+	check('weather post size: no lengths', p[0].parts.reduce((n, x) => n + x.raw.length, 0), 3 + 3 + 5 + 5 + 3 + 5);
+	malformed('two altitudes', R.payload([R.reply(ts, parentId, R.altitude(1), R.altitude(2))]));
+	// unknown fixed-size types are skipped by the size of their block
+	for (const [type, size] of [[0x80, 1], [0x8F, 2], [0x97, 4], [0x98, 6], [0xA7, 8], [0xAF, 12], [0xB0, 16], [0xBF, 32]]) {
+		p = parses(`unknown fixed type 0x${type.toString(16)}`, R.payload([Uint8Array.of(type, ...fill(size, 7)), R.textUTF8('after')]));
+		check(`unknown fixed type 0x${type.toString(16)}: ${size} bytes, then the text`, p.length === 2 && p[0].unknown && p[1].type, T.TEXT_UTF8);
+	}
+	p = parses('unknown fixed part', R.payload([R.reply(ts, parentId, Uint8Array.of(0x8F, 1, 2), R.textUTF8('x'))]));
+	check('unknown fixed part skipped', p[0].parts.map((x) => x.unknown ? 'unknown' : x.name).join(), 'unknown,TEXT_UTF8');
+	malformed('fixed type cut short', R.payload([Uint8Array.of(T.PRESSURE, 1, 2, 3)]));
+	throws('a fixed-size type with a length', () => R.record(T.VOLTAGE, [1, 2]));
+	throws('fixed() with the wrong size', () => R.fixed(0x88, [1]));
 	p = parses('unknown optional part', R.payload([R.reply(ts, parentId, R.record(0x60, [1]))]));
 	check('post with only an unknown optional part is kept', p[0].dropped, undefined);
 	malformed('two text parts', R.payload([R.reply(ts, parentId, R.textUTF8('a'), R.textUTF8('b'))]));
@@ -267,37 +278,31 @@ check('Request-Root is 19 or 35 bytes', R.requestRoot(1, fill(16, 0)).length + '
 		R.toCall('B'), R.mime('text/plain', 'a.txt', fill(3, 0x41)), R.codec2(8, fill(7, 0))]));
 	check('bare media are kept as bare records', p.map((x) => x.bare).join(), 'true,true,true,true');
 	check('prefix before bare WebP', p[1].chain[0].handle, 'A');
-	malformed('bare Mention of 31 bytes', R.payload([R.record(T.MENTION, fill(31, 1))]));
 	malformed('bare MIME with bad name', R.payload([R.record(T.MIME, [0x61, 0x2F, 0x62, 0, 0x2E, 0])]));
-	malformed('Mention of 31 bytes', R.payload([R.reply(ts, parentId, R.record(T.MENTION, fill(31, 1)))]));
+	malformed('Mention cut short at the end of a post', R.payload([R.record(T.REPLY, [1, 0, 0, 0], parentId, [T.MENTION], fill(31, 1))]));
 }
 
 // --------------------------------------------------- values in range
 
 {
 	const bare = (rec) => R.payload([rec]);
-	malformed('latitude above 90', bare(R.record(T.POSITION, [0x01, 0xE9, 0xA4, 0x35], fill(8, 0))));
-	malformed('longitude below -180', bare(R.record(T.POSITION, [0, 0, 0, 0], [0xFF, 0x2D, 0xB6, 0x94], fill(4, 0))));
+	const raw = (type, ...bytes) => Uint8Array.of(type, ...bytes.flat());
+	malformed('latitude above 90', bare(raw(T.POSITION, [0x01, 0xE9, 0xA4, 0x35], fill(8, 0))));
+	malformed('longitude below -180', bare(raw(T.POSITION, [0, 0, 0, 0], [0xFF, 0x2D, 0xB6, 0x94], fill(4, 0))));
 	parses('latitude exactly 90', bare(R.position({ lat: 900000000, lon: -1800000000, time: 0xFFFFFFFF })));
-	malformed('Position of 10 bytes', bare(R.record(T.POSITION, fill(10, 0))));
-	for (const n of [8, 14])
-		malformed(`Position of ${n} bytes, the old lengths`, bare(R.record(T.POSITION, fill(n, 0))));
+	malformed('Position cut short', bare(raw(T.POSITION, fill(10, 0))));
 	throws('encode Position without fix time', () => R.position({ lat: 0, lon: 0 }));
 	throws('encode negative fix time', () => R.position({ lat: 0, lon: 0, time: -1 }));
-	const pos = parses('Position of 16 bytes', bare(R.position({ lat: 1, lon: 2, time: 3, alt: -4 })))[0];
-	check('Position of 16 bytes', [pos.lat, pos.lon, pos.time, pos.alt, pos.acc].join(), '1,2,3,-4,');
-	malformed('humidity above 100 %', bare(R.record(T.HUMIDITY, [0x11, 0x27])));
-	malformed('wind direction 360', bare(R.record(T.WIND, [0xA0, 0x8C, 0, 0])));
-	malformed('wind of 5 bytes', bare(R.record(T.WIND, fill(5, 0))));
-	malformed('temperature of 3 bytes', bare(R.record(T.TEMPERATURE, fill(3, 0))));
-	malformed('pressure of 2 bytes', bare(R.record(T.PRESSURE, fill(2, 0))));
-	malformed('voltage of 1 byte', bare(R.record(T.VOLTAGE, [1])));
+	const pos = parses('Position', bare(R.position({ lat: 1, lon: 2, time: 3 })))[0];
+	check('Position', [pos.lat, pos.lon, pos.time, pos.raw.length].join(), '1,2,3,13');
+	malformed('humidity above 100 %', bare(raw(T.HUMIDITY, [0x11, 0x27])));
+	malformed('wind direction 360', bare(raw(T.WIND, [0xA0, 0x8C, 0, 0])));
 	throws('encode latitude 91', () => R.position({ lat: 910000000, lon: 0, time: 0 }));
-	throws('encode accuracy without altitude', () => R.position({ lat: 0, lon: 0, time: 0, acc: 3 }));
 	throws('encode humidity 10001', () => R.humidity(10001));
 	throws('encode temperature 327.68', () => R.temperature(32768));
-	check('encode temperature -327.68', hex(R.temperature(-32768)), '32020080');
-	check('encode latitude -1', hex(R.position({ lat: -1, lon: 0, time: 0x01020304 })), '310cffffffff0000000004030201');
+	check('encode temperature -327.68', hex(R.temperature(-32768)), '880080');
+	check('encode latitude -1', hex(R.position({ lat: -1, lon: 0, time: 0x01020304 })), 'a8ffffffff0000000004030201');
+	check('encode altitude', hex(R.altitude(-2)), '92feffffff');
 }
 
 // ------------------------------------------------------------ MIME

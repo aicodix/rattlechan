@@ -247,13 +247,9 @@ export function confirmTrust(key) {
 
 function position(n) {
 	const lat = fixed(n.lat, 1e7, 7), lon = fixed(n.lon, 1e7, 7);
-	const geo = `geo:${lat},${lon}${n.alt !== undefined ? `,${fixed(n.alt, 1000, 3)}` : ''}${n.acc ? `;u=${n.acc}` : ''}`;
 	const a = el('a', `${lat}, ${lon}`);
-	a.href = geo;
-	return el('div.part', '📍 ', a,
-		n.alt !== undefined ? `, ${fixed(n.alt, 1000, 1)} m` : '',
-		n.acc ? ` ±${n.acc} m` : '',
-		el('span.dim', ` fix ${when(n.time * 1000)}`));
+	a.href = `geo:${lat},${lon}`;
+	return el('div.part', '📍 ', a, el('span.dim', ` fix ${when(n.time * 1000)}`));
 }
 
 // Animated WebP: a VP8X chunk first, with its animation flag set
@@ -393,7 +389,9 @@ function leaf(n, key = null) {
 	case T.PRESSURE:
 		return el('div.part', `${fixed(n.value, 100, 2)} hPa`);
 	case T.WIND:
-		return el('div.part', `🌬 from ${fixed(n.direction, 100, 2)}°, ${fixed(n.speed, 100, 2)} m/s`, n.gust !== undefined ? `, gusts ${fixed(n.gust, 100, 2)} m/s` : '');
+		return el('div.part', `🌬 from ${fixed(n.direction, 100, 2)}°, ${fixed(n.speed, 100, 2)} m/s`);
+	case T.ALTITUDE:
+		return el('div.part', `⛰ ${fixed(n.value, 1000, 1)} m`);
 	case T.VOLTAGE:
 		return el('div.part', `🔋 ${fixed(n.value, 1000, 3)} V`);
 	case T.MENTION:

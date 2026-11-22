@@ -28,13 +28,14 @@ export const T = Object.freeze({
 	REQUEST_ROOT: 0x27,
 	REVOKE_RETIRED: 0x28,
 	REVOKE_COMPROMISED: 0x29,
-	MENTION: 0x30,
-	POSITION: 0x31,
-	TEMPERATURE: 0x32,
-	HUMIDITY: 0x33,
-	PRESSURE: 0x34,
-	WIND: 0x35,
-	VOLTAGE: 0x36,
+	TEMPERATURE: 0x88,
+	HUMIDITY: 0x89,
+	VOLTAGE: 0x8A,
+	PRESSURE: 0x90,
+	WIND: 0x91,
+	ALTITUDE: 0x92,
+	POSITION: 0xA8,
+	MENTION: 0xB8,
 	TEXT_UTF8: 0x40,
 	TEXT_GB18030: 0x41,
 	TEXT_TABLE: 0x42,
@@ -74,7 +75,15 @@ export const isCore = (t) => t >= 0x20 && t <= 0x2F;
 export const isOptional = (t) => t >= 0x30 && t <= 0xEF;
 export const isMustUnderstand = (t) => t >= 0xF0 && t <= 0xFE;
 export const isText = (t) => t >= 0x40 && t <= 0x4F;
-export const isSensor = (t) => t >= T.TEMPERATURE && t <= T.VOLTAGE;
+const SENSORS = new Set([T.TEMPERATURE, T.HUMIDITY, T.VOLTAGE, T.PRESSURE, T.WIND, T.ALTITUDE]);
+export const isSensor = (t) => SENSORS.has(t);
+
+// Optional records of a fixed size carry no length: 0x80..0xBF in eight
+// blocks of eight types, each block with one size, so a client skips the
+// ones it doesn't know by their type alone
+export const FIXED_SIZES = Object.freeze([1, 2, 4, 6, 8, 12, 16, 32]);
+export const isFixedSize = (t) => t >= 0x80 && t <= 0xBF;
+export const fixedSize = (t) => FIXED_SIZES[(t - 0x80) >> 3];
 const isKnown = (t) => t in NAMES || isText(t);
 
 // Malformed data drops the whole frame
@@ -258,22 +267,25 @@ function readRecord(buf, pos, end) {
 const strictUTF8 = new TextDecoder('utf-8', { fatal: true });
 
 // Fixed-size core records carry no length byte. Their size follows from
-// the type, for Request-Root from its header.
+// the type, for Request-Root from its header. So do the fixed-size
+// optional records, known or not.
 const FIXED = new Set([T.REQUEST_POST, T.REQUEST_ROOT, T.REVOKE_RETIRED, T.REVOKE_COMPROMISED]);
 
 function readFixed(buf, pos, end) {
 	const type = buf[pos];
 	let size = 0;
-	if (type === T.REQUEST_POST)
+	if (isFixedSize(type))
+		size = fixedSize(type);
+	else if (type === T.REQUEST_POST)
 		size = 32;
 	else if (type === T.REQUEST_ROOT)
 		size = end - pos < 3 ? 2 : 2 + (buf[pos + 2] & 0x80 ? 32 : 16);
 	if (size > end - pos - 1)
-		throw new MalformedError(`${NAMES[type]} runs past its container`, pos);
+		throw new MalformedError(`${NAMES[type] ?? `type 0x${hex2(type)}`} runs past its container`, pos);
 	const stop = pos + 1 + size;
 	return {
 		type,
-		name: NAMES[type],
+		name: NAMES[type] ?? null,
 		offset: pos,
 		end: stop,
 		raw: buf.subarray(pos, stop),
@@ -349,13 +361,9 @@ function checkValue(node, opts) {
 	const bad = (what) => { throw new MalformedError(what, at); };
 	switch (node.type) {
 	case T.MENTION:
-		if (n !== 32)
-			bad('Mention must be 32 bytes');
 		node.id = b;
 		break;
 	case T.POSITION:
-		if (n !== 12 && n !== 16 && n !== 18)
-			bad('Position must be 12, 16 or 18 bytes');
 		node.lat = i32(b, 0);
 		node.lon = i32(b, 4);
 		if (node.lat < -900000000 || node.lat > 900000000)
@@ -363,41 +371,28 @@ function checkValue(node, opts) {
 		if (node.lon < -1800000000 || node.lon > 1800000000)
 			bad('longitude out of range');
 		node.time = u32(b, 8);
-		if (n >= 16)
-			node.alt = i32(b, 12);
-		if (n === 18)
-			node.acc = u16(b, 16);
 		break;
 	case T.TEMPERATURE:
-		if (n !== 2)
-			bad('Temperature must be 2 bytes');
 		node.value = i16(b, 0);
 		break;
 	case T.HUMIDITY:
-		if (n !== 2)
-			bad('Humidity must be 2 bytes');
 		node.value = u16(b, 0);
 		if (node.value > 10000)
 			bad('Humidity above 100 %');
 		break;
 	case T.PRESSURE:
-		if (n !== 4)
-			bad('Pressure must be 4 bytes');
 		node.value = u32(b, 0);
 		break;
+	case T.ALTITUDE:
+		node.value = i32(b, 0);
+		break;
 	case T.WIND:
-		if (n !== 4 && n !== 6)
-			bad('Wind must be 4 or 6 bytes');
 		node.direction = u16(b, 0);
 		node.speed = u16(b, 2);
 		if (node.direction > 35999)
 			bad('wind direction out of range');
-		if (n === 6)
-			node.gust = u16(b, 4);
 		break;
 	case T.VOLTAGE:
-		if (n !== 2)
-			bad('Voltage must be 2 bytes');
 		node.value = u16(b, 0);
 		break;
 	case T.CODEC2:
@@ -523,7 +518,7 @@ function parsePost(buf, node, ctx) {
 			throw new MalformedError('reserved type 0xFF', pos);
 		if (isCore(type))
 			throw new MalformedError(`core record 0x${hex2(type)} inside a post`, pos);
-		const part = readRecord(buf, pos, end);
+		const part = isFixedSize(type) ? readFixed(buf, pos, end) : readRecord(buf, pos, end);
 		pos = part.end;
 		node.parts.push(part);
 		if (isMustUnderstand(type)) {
@@ -743,7 +738,7 @@ function parseRecords(buf, pos, end, ctx) {
 			pos = p.end;
 			continue;
 		}
-		const node = FIXED.has(type) ? readFixed(buf, pos, end) : readRecord(buf, pos, end);
+		const node = FIXED.has(type) || isFixedSize(type) ? readFixed(buf, pos, end) : readRecord(buf, pos, end);
 		node.prefixes = pending;
 		node.chain = pending.length ? ctx.chain.concat(pending) : ctx.chain;
 		pending = [];
@@ -804,8 +799,8 @@ export function encodeLength(n) {
 
 // A record with a length; chunks are Uint8Arrays or arrays of bytes
 export function record(type, ...chunks) {
-	if (!Number.isInteger(type) || type < 0x20 || type > 0xFE)
-		throw new RangeError('records with a length have types 0x20..0xFE');
+	if (!Number.isInteger(type) || type < 0x20 || type > 0xFE || isFixedSize(type))
+		throw new RangeError('records with a length have types 0x20..0x7F and 0xC0..0xFE');
 	const body = concat(...chunks);
 	return concat([type], encodeLength(body.length), body);
 }
@@ -897,35 +892,34 @@ export function revoke(reason) {
 }
 
 // Optional records
-export const mention = (id) => record(T.MENTION, bytesOf(id, 32, 'post ID'));
+// A fixed-size optional record: its type and exactly fixedSize(type) bytes
+export function fixed(type, ...chunks) {
+	if (!isFixedSize(type))
+		throw new RangeError('fixed-size records have types 0x80..0xBF');
+	const body = concat(...chunks);
+	if (body.length !== fixedSize(type))
+		throw new RangeError(`type 0x${hex2(type)} holds ${fixedSize(type)} bytes, not ${body.length}`);
+	return concat([type], body);
+}
 
-// lat, lon in 1e-7 degrees; time of the fix in Unix seconds (UTC);
-// alt in mm above mean sea level; acc in m, 0 = unknown
-export function position({ lat, lon, time, alt, acc }) {
-	const chunks = [sle32(lat, 'latitude'), sle32(lon, 'longitude'), le32(time, 'fix time')];
+export const mention = (id) => fixed(T.MENTION, bytesOf(id, 32, 'post ID'));
+
+// lat, lon in 1e-7 degrees; time of the fix in Unix seconds (UTC)
+export function position({ lat, lon, time }) {
 	if (Math.abs(lat) > 900000000 || Math.abs(lon) > 1800000000)
 		throw new RangeError('latitude or longitude out of range');
-	if (acc !== undefined && alt === undefined)
-		throw new RangeError('accuracy needs an altitude');
-	if (alt !== undefined)
-		chunks.push(sle32(alt, 'altitude'));
-	if (acc !== undefined)
-		chunks.push(le16(acc, 'accuracy'));
-	return record(T.POSITION, ...chunks);
+	return fixed(T.POSITION, sle32(lat, 'latitude'), sle32(lon, 'longitude'), le32(time, 'fix time'));
 }
 
-export const temperature = (centiCelsius) => record(T.TEMPERATURE, sle16(centiCelsius, 'temperature'));
-export const humidity = (centiPercent) => record(T.HUMIDITY, intBytes(centiPercent, 2, 0, 10000, 'humidity'));
-export const pressure = (pascal) => record(T.PRESSURE, le32(pascal, 'pressure'));
-export const voltage = (millivolt) => record(T.VOLTAGE, le16(millivolt, 'voltage'));
+export const temperature = (centiCelsius) => fixed(T.TEMPERATURE, sle16(centiCelsius, 'temperature'));
+export const humidity = (centiPercent) => fixed(T.HUMIDITY, intBytes(centiPercent, 2, 0, 10000, 'humidity'));
+export const pressure = (pascal) => fixed(T.PRESSURE, le32(pascal, 'pressure'));
+export const voltage = (millivolt) => fixed(T.VOLTAGE, le16(millivolt, 'voltage'));
+// in mm above mean sea level
+export const altitude = (millimetre) => fixed(T.ALTITUDE, sle32(millimetre, 'altitude'));
 
-// direction in 0.01 degrees from true north, speeds in 0.01 m/s
-export function wind({ direction, speed, gust }) {
-	const chunks = [intBytes(direction, 2, 0, 35999, 'wind direction'), le16(speed, 'wind speed')];
-	if (gust !== undefined)
-		chunks.push(le16(gust, 'gust speed'));
-	return record(T.WIND, ...chunks);
-}
+// direction in 0.01 degrees from true north, speed in 0.01 m/s
+export const wind = ({ direction, speed }) => fixed(T.WIND, intBytes(direction, 2, 0, 35999, 'wind direction'), le16(speed, 'wind speed'));
 
 export const codec2 = (mode, frames) => record(T.CODEC2, intBytes(mode, 1, 0, 255, 'Codec2 mode'), bytesOf(frames, undefined, 'frames'));
 export const webp = (bytes) => record(T.WEBP, bytesOf(bytes, undefined, 'WebP'));
