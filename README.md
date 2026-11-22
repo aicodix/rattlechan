@@ -51,6 +51,7 @@ Early. The protocol is a v0 draft in [SPEC.md](SPEC.md) and will change while th
 * [examples/session_test.mjs](examples/session_test.mjs): the whole session through the decoder and a station, at both rates, run with `node examples/session_test.mjs`
 * [examples/busy.mjs](examples/busy.mjs): a busy evening of ten stations as one seamless WAV, to fill the Inbox and the Boards: threads several levels deep on the board for everyone and on "contest", "weather" and "club", and direct conversations; import the private key 0808…08 ("08" 32 times) as Petr, OK1ABC, to see his inbox
 * [examples/busy_test.mjs](examples/busy_test.mjs): the busy evening through the decoder, a station and the tree, seen as Petr, run with `node examples/busy_test.mjs`
+* [examples/avatars/](examples/avatars/): the avatars of the busy evening, 128x128 WebP drawn with Pillow, four of them animated
 * [station.js](station.js): what the station does with a received frame: parse, check signatures, reassemble Fragments, learn about keys, store in the tier trust puts it in, and replay the stored frames at startup
 * [station_test.mjs](station_test.mjs): frames through the station into a store in memory, run with `node station_test.mjs`
 * [tree.js](tree.js): the BBS tree: signed posts gathered into conversations, on boards, direct or elsewhere, and the ones for the station in its inbox

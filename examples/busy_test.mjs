@@ -1,7 +1,7 @@
 // Tests for busy.mjs. Run with: node examples/busy_test.mjs
 // The busy evening goes through the ROBUSTO decoder and a station in
 // memory: every frame arrives, and the tree has the boards, threads and
-// inbox the example promises, seen as Petr.
+// inbox the example promises, seen as Petr, and everyone's avatar.
 
 import { readFile } from 'node:fs/promises';
 import { busy, PEOPLE } from './busy.mjs';
@@ -68,6 +68,12 @@ check('not his: Yuki and Tama', why('tama'), null);
 check('the stranger hidden', conv('qsl').hidden.size, 1);
 check('the orphan elsewhere', conv('orphan').place.kind, 'elsewhere');
 check('inbox: six conversations', list.filter((c) => c.inbox).length, 6);
+
+// everyone but the stranger has an avatar, learned beside a post or from an Avatar post of its own
+for (const [who, p] of Object.entries(PEOPLE)) {
+	const got = S.keyInfo(hex(C.fingerprint(new Uint8Array(32).fill(p.key)))).avatar;
+	check(`avatar of ${who}`, got ? hex(got) : null, p.avatar ? hex(await file(`examples/avatars/${who}.webp`)) : null);
+}
 
 console.log(failed ? `${failed} of ${checks} checks failed` : `all ${checks} checks passed`);
 if (failed)

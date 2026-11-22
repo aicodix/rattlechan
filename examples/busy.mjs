@@ -9,6 +9,10 @@
 // that is maybe for him by name, and is in conversations he posted in. A
 // stranger butts into one of his direct conversations, and a Reply to a
 // post nobody received ends up elsewhere.
+// Everyone but the stranger has an avatar from examples/avatars/, drawn
+// with Pillow: the still ones go beside the station's first post, as
+// "Include the avatar" does, the animated ones in an Avatar post of their
+// own, as a key card's "Send avatar" does. Trust a station to see it.
 // All posts are signed and sent as the GUI sends them, chained back to
 // back, the long ones in Fragments.
 
@@ -16,24 +20,24 @@ import * as R from '../records.js';
 import { loadEncoder } from '../robusto.js';
 import { loadCrypto } from '../crypto.js';
 import { loadHydra } from '../hydra.js';
-import { compose, split, SECONDS_DEFAULT, SNR_DEFAULT } from '../sender.js';
+import { compose, composeAvatar, split, SECONDS_DEFAULT, SNR_DEFAULT } from '../sender.js';
 import { onAir, wav } from './session.mjs';
 
 const opts = { seconds: SECONDS_DEFAULT, snr: SNR_DEFAULT };
 
 // the stations: fixed keys, so the same ones come out every time
 export const PEOPLE = Object.freeze({
-	anna: { key: 1, call: 'DL1ABC', name: 'Anna' },
-	jan: { key: 2, call: 'PA3XYZ', name: 'Jan' },
-	yuki: { key: 3, call: 'JA1ABC', name: 'Yuki' },
-	arjun: { key: 4, call: 'VU2ABC', name: 'Arjun' },
-	camille: { key: 6, call: 'F4ABC', name: 'Camille' },
-	lucia: { key: 7, call: 'EA3XYZ', name: 'Lucía' },
-	petr: { key: 8, call: 'OK1ABC', name: 'Petr' },
-	erik: { key: 11, call: 'SM5ABC', name: 'Erik' },
-	mia: { key: 12, call: 'VK2ABC', name: 'Mia' },
-	tama: { key: 13, call: 'ZL1ABC', name: 'Tama' },
-	stranger: { key: 14, call: 'N0BODY', name: null },
+	anna: { key: 1, call: 'DL1ABC', name: 'Anna', avatar: 'own' },
+	jan: { key: 2, call: 'PA3XYZ', name: 'Jan', avatar: 'own' },
+	yuki: { key: 3, call: 'JA1ABC', name: 'Yuki', avatar: 'beside' },
+	arjun: { key: 4, call: 'VU2ABC', name: 'Arjun', avatar: 'beside' },
+	camille: { key: 6, call: 'F4ABC', name: 'Camille', avatar: 'beside' },
+	lucia: { key: 7, call: 'EA3XYZ', name: 'Lucía', avatar: 'own' },
+	petr: { key: 8, call: 'OK1ABC', name: 'Petr', avatar: 'beside' },
+	erik: { key: 11, call: 'SM5ABC', name: 'Erik', avatar: 'own' },
+	mia: { key: 12, call: 'VK2ABC', name: 'Mia', avatar: 'beside' },
+	tama: { key: 13, call: 'ZL1ABC', name: 'Tama', avatar: 'beside' },
+	stranger: { key: 14, call: 'N0BODY', name: null, avatar: null },
 });
 
 // The evening: { rate, audio, items }, as session() gives it, plus the
@@ -47,29 +51,40 @@ export async function busy({ file, rate = 48000, now = Math.floor(Date.now() / 1
 	const fingerprint = (p) => C.fingerprint(keyOf(p));
 	let t = now - 2 * 3600;
 
+	const avatars = {};
+	for (const [who, p] of Object.entries(PEOPLE))
+		if (p.avatar)
+			avatars[who] = new Uint8Array(await file(`examples/avatars/${who}.webp`));
+
 	const items = [], ids = {};
 	const introduced = new Set();
+	// a payload on the air, in Fragments if it doesn't fit one frame
+	const send = (p, what, payload) => {
+		const s = split(payload, { encoder: E, hydra: H, ...opts });
+		if (s.frames.length === 1)
+			items.push({ callSign: p.call, what, payload });
+		else
+			s.frames.forEach((f, i) => items.push({ callSign: p.call, what: `${what}: Fragment ${i + 1} of ${s.frames.length}, any ${s.K} enough`, payload: f }));
+	};
 	// A post by who, signed, the first one of each station with its call
 	// sign and name; label names it for the replies. Returns its ID.
 	const say = (who, label, { subject, text, parent, to, what }) => {
 		const p = PEOPLE[who];
 		const first = !introduced.has(who);
 		introduced.add(who);
+		const sign = (...records) => C.signRecords(keyOf(p), ...records);
+		if (first && p.avatar === 'own')
+			send(p, `Avatar of ${p.name}`, composeAvatar({ avatar: avatars[who], callSign: p.call, name: p.name, sign }));
 		t += 37 + (text.length % 53);
 		const payload = compose({
 			kind: subject ? 'topic' : 'reply', subject, text, to, timestamp: t,
 			parent: parent && (typeof parent === 'string' ? ids[parent] : parent),
 			callSign: first ? p.call : null, name: first ? p.name : null,
-			sign: (...records) => C.signRecords(keyOf(p), ...records),
+			avatar: first && p.avatar === 'beside' ? avatars[who] : null, sign,
 		});
 		const node = R.parse(payload)[0].children.find((n) => n.type === R.T.TOPIC || n.type === R.T.REPLY);
 		ids[label] = R.postId(node.raw, fingerprint(p));
-		const s = split(payload, { encoder: E, hydra: H, ...opts });
-		const kind = what ?? (subject ? 'Topic' : 'Reply');
-		if (s.frames.length === 1)
-			items.push({ callSign: p.call, what: `${kind} ${label}`, payload });
-		else
-			s.frames.forEach((f, i) => items.push({ callSign: p.call, what: `${kind} ${label}: Fragment ${i + 1} of ${s.frames.length}, any ${s.K} enough`, payload: f }));
+		send(p, `${what ?? (subject ? 'Topic' : 'Reply')} ${label}${first && p.avatar === 'beside' ? ' with avatar' : ''}`, payload);
 		return ids[label];
 	};
 
