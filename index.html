@@ -71,11 +71,13 @@
 		<fieldset id="send-choice" class="choice" hidden>
 			<legend>It doesn't fit in one frame at these settings. Send it as</legend>
 			<label><input type="radio" name="how" value="fragments" checked> <span id="choice-fragments"></span></label>
+			<label class="sub"><input type="checkbox" id="one-at-a-time"> <span>one fragment at a time, pressing Send for each</span></label>
 			<label><input type="radio" name="how" value="longer"> <span id="choice-longer"></span></label>
 		</fieldset>
 		<div class="row">
 			<button id="send-button" class="primary" disabled>Send</button>
 			<button id="send-stop" hidden>Stop</button>
+			<button id="send-finish" hidden>Finish</button>
 		</div>
 		<p id="send-status" class="dim"></p>
 	</section>

@@ -184,6 +184,8 @@ fieldset.choice legend { color: var(--dim); font-size: 14px; padding: 0 4px; }
 fieldset.choice label { display: flex; gap: 8px; align-items: baseline; padding: 6px 0; }
 fieldset.choice input { min-height: 0; accent-color: var(--accent); }
 fieldset.choice label:has(input:disabled) { color: var(--dim); }
+fieldset.choice label.sub { padding-left: 24px; }
+fieldset.choice label.sub[hidden] { display: none; }
 
 /* the station's keys */
 .key-card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 0 0 8px; }

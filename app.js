@@ -703,13 +703,21 @@ function keyCard(k) {
 	sendAvatar.hidden = !k.avatar || revoked.retired !== null || revoked.compromised !== null;
 	const avatarStop = view.el('button.small', 'Stop');
 	avatarStop.hidden = true;
+	const avatarFinish = view.el('button.small', 'Finish');
+	avatarFinish.hidden = true;
+	const stepBox = view.el('input');
+	stepBox.type = 'checkbox';
+	stepBox.checked = oneAtATime();
+	stepBox.onchange = () => setOneAtATime(stepBox.checked);
+	const stepField = view.el('label.check', stepBox, view.el('span', 'fragments one at a time, pressing Send for each'));
+	stepField.hidden = sendAvatar.hidden;
 	sendAvatar.onclick = async () => {
 		sendAvatar.disabled = true;
 		const say = (t) => {
 			avatarInfo.textContent = t;
 		};
 		try {
-			await transmit(await avatarDraft(k), 'fragments', say, avatarStop);
+			await transmit(await avatarDraft(k), 'fragments', say, avatarStop, stepBox.checked ? { next: sendAvatar, finish: avatarFinish } : null);
 		} catch (err) {
 			say(`Can't send: ${err.message}`);
 		}
@@ -734,7 +742,8 @@ function keyCard(k) {
 		view.el('div.key-card-head', k.avatar ? view.withAvatar(icon, k.avatar) : icon, view.el('strong', k.label), view.el('span.key', k.key.slice(0, 8))),
 		state,
 		labelField, callFieldEl, nameField,
-		view.el('div.row', choose, dropAvatar, sendAvatar, avatarStop, file),
+		view.el('div.row', choose, dropAvatar, sendAvatar, avatarStop, avatarFinish, file),
+		stepField,
 		avatarInfo,
 		view.el('div.row', print, revoke, remove),
 		revokeArea,
@@ -814,6 +823,8 @@ let replyTo = null;
 // microphone and the decoder keep running
 let deafUntil = 0;
 let sending = null;
+// while fragments go out one at a time, between them too
+let stepping = false;
 
 function setKind(k) {
 	kind = k;
@@ -957,6 +968,8 @@ async function draft() {
 // what the post would take on the air, updated while typing
 let estimating = 0;
 async function estimate() {
+	if (stepping)
+		return;
 	const mine = ++estimating;
 	await new Promise((r) => setTimeout(r, 250));
 	if (mine !== estimating)
@@ -1018,6 +1031,8 @@ async function estimate() {
 	const radios = [...document.querySelectorAll('input[name=how]')];
 	if (radios.find((r) => r.checked)?.disabled)
 		radios.find((r) => !r.disabled)?.click();
+	// one at a time is a way of sending fragments
+	$('one-at-a-time').closest('label').hidden = radios.find((r) => r.checked)?.value !== 'fragments';
 	$('send-button').disabled = !d.payload || !!sending || radios.every((r) => r.disabled);
 }
 
@@ -1039,6 +1054,7 @@ function plan(E, d, how) {
 
 for (const r of document.querySelectorAll('input[name=how]'))
 	r.onchange = estimate;
+$('one-at-a-time').onchange = () => setOneAtATime($('one-at-a-time').checked);
 
 // typing starts the next post
 const typed = () => {
@@ -1055,49 +1071,114 @@ $('hex').oninput = typed;
 
 // Puts a draft on the air: in one frame if it fits the settings, otherwise
 // as Fragments or, with how = 'longer', in one longer frame. Logs the
-// station's own frames, tells say() how it goes and shows stop while
-// sending. Resolves to true once all of it went out.
-async function transmit(d, how, say, stop) {
-	if (sending)
+// station's own frames as they went out, tells say() how it goes and shows
+// stop while sending. Fragments go out all at once, chained, or with step
+// = { next, finish } (two buttons) one at a time, each its own
+// transmission with its leading noise, next sending the next and finish
+// ending early. Resolves to true once it went out or was finished, false
+// if stopped.
+async function transmit(d, how, say, stop, step = null) {
+	if (sending || stepping)
 		throw new Error('already sending');
 	const ctx = await output();
 	const E = await encoderFor(ctx.sampleRate);
 	const callSign = d.o.callSign || 'ANONYMOUS';
 	const s = plan(E, d, how);
-	const c = chain(E, s.frames, { seconds: s.seconds, snr: s.snr, callSign });
-	const arrival = Date.now();
-	deafUntil = Infinity;
-	sending = play(ctx, c.audio);
-	$('send-button').disabled = true;
-	stop.onclick = () => sending?.stop();
-	stop.hidden = false;
-	say(`Sending ${s.frames.length === 1 ? 'one frame' : `${s.frames.length} fragments`}, ${c.seconds.toFixed(1)} s …`);
-	status('sending', 'ok');
-	try {
-		const complete = await sending.done;
-		say(complete ? 'Sent.' : 'Stopped.');
-		// the station's own frames, kept as sent once all of them went
-		// out; a revocation among them counts from then on
-		if (complete) {
+	const opts = { seconds: s.seconds, snr: s.snr, callSign };
+	const n = s.frames.length;
+	// one transmission: frames chained back to back, kept once all went out
+	const air = async (frames, what) => {
+		const c = chain(E, frames, opts);
+		const arrival = Date.now();
+		deafUntil = Infinity;
+		sending = play(ctx, c.audio);
+		$('send-button').disabled = true;
+		stop.onclick = () => sending?.stop();
+		stop.hidden = false;
+		say(`Sending ${what}, ${c.seconds.toFixed(1)} s …`);
+		status('sending', 'ok');
+		try {
+			const complete = await sending.done;
+			if (!complete)
+				return false;
+			// a revocation among them counts from then on
 			let revoking = false;
-			for (const [i, f] of s.frames.entries()) {
+			for (const [i, f] of frames.entries()) {
 				const e = await station.sent(f, { arrival, callSign: d.o.callSign || null, mode: c.modes[i] });
 				add(() => view.entry(e));
 				revoking ||= revokes(e);
 			}
 			if (revoking)
 				await revoked();
+			return true;
+		} finally {
+			sending = null;
+			deafUntil = Date.now() + 1500;
+			stop.hidden = true;
+			status(receiver ? 'listening' : 'not listening');
+			refreshStorage();
 		}
-		return complete;
+	};
+	if (!step || n === 1) {
+		try {
+			const complete = await air(s.frames, n === 1 ? 'one frame' : `${n} fragments`);
+			say(complete ? 'Sent.' : 'Stopped.');
+			return complete;
+		} finally {
+			estimate();
+		}
+	}
+	// one at a time: the operator presses next for each after the first
+	const label = step.next.textContent;
+	const handler = step.next.onclick;
+	stepping = true;
+	lockSend(true);
+	try {
+		for (let i = 0; i < n; ++i) {
+			if (i) {
+				say(`Fragment ${i} of ${n} sent, ${i >= s.K ? 'enough to decode' : `any ${s.K} needed`}. Ready for the next? Press Send.`);
+				const go = await new Promise((resolve) => {
+					step.next.textContent = `Send fragment ${i + 1} of ${n}`;
+					step.next.disabled = false;
+					step.next.onclick = () => resolve(true);
+					step.finish.onclick = () => resolve(false);
+					step.finish.hidden = false;
+				});
+				step.finish.hidden = true;
+				if (!go) {
+					say(`Finished after ${i} of ${n} fragments${i < s.K ? `, fewer than the ${s.K} needed` : ''}.`);
+					return true;
+				}
+			}
+			if (!await air([s.frames[i]], `fragment ${i + 1} of ${n}`)) {
+				say(`Stopped at fragment ${i + 1} of ${n}.`);
+				return false;
+			}
+		}
+		say(`Sent all ${n} fragments.`);
+		return true;
 	} finally {
-		sending = null;
-		deafUntil = Date.now() + 1500;
-		stop.hidden = true;
-		status(receiver ? 'listening' : 'not listening');
-		refreshStorage();
+		stepping = false;
+		step.next.textContent = label;
+		step.next.onclick = handler;
+		step.finish.hidden = true;
+		lockSend(false);
 		estimate();
 	}
 }
+
+// the post can't change while its fragments go out one at a time
+function lockSend(on) {
+	for (const e of document.querySelectorAll('#send input, #send textarea, #send select, #send .segmented button'))
+		e.disabled = on;
+}
+
+// fragments one at a time, as the operator last chose
+const oneAtATime = () => recall('oneAtATime') === '1';
+const setOneAtATime = (on) => {
+	remember('oneAtATime', on ? '1' : '0');
+	$('one-at-a-time').checked = on;
+};
 
 $('send-button').onclick = async () => {
 	$('send-button').disabled = true;
@@ -1109,7 +1190,8 @@ $('send-button').onclick = async () => {
 		if (!d.payload)
 			throw new Error(d.why);
 		const how = d.raw ? 'longer' : document.querySelector('input[name=how]:checked')?.value ?? 'fragments';
-		if (await transmit(d, how, say, $('send-stop'))) {
+		const step = how === 'fragments' && oneAtATime() ? { next: $('send-button'), finish: $('send-finish') } : null;
+		if (await transmit(d, how, say, $('send-stop'), step)) {
 			$('text').value = '';
 			$('subject').value = '';
 			$('hex').value = '';
@@ -1131,6 +1213,7 @@ $('send-button').onclick = async () => {
 await fillOwn();
 await trustOwn();
 await fillKeys();
+$('one-at-a-time').checked = oneAtATime();
 setKind('topic');
 
 const startTab = recall('tab');
