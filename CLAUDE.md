@@ -65,3 +65,4 @@ Every module has its <name>_test.mjs; the browser halves are encodings_test.html
 - [ ] Relays repeating the kept revocations now and then.
 - [ ] Inbox and Boards tabs: posts to the station's call sign, names and keys; boards by group name; direct conversations showing only Replies by the two keys.
 - [ ] Maybe an output level setting: the modem plays at full scale.
+- [ ] Playing Codec2: libcodec2's decoder compiled to WebAssembly in its own LGPL-2.1 repo, loaded as a separate module only when Play is pressed; the encoder later, for voice posts. Save-only until then.
