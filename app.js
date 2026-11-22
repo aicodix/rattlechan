@@ -983,6 +983,8 @@ async function estimate() {
 	$('send-button').disabled = !d.payload || !!sending;
 	$('hex-preview').replaceChildren();
 	if (!d.payload) {
+		// nothing to send, so no choice of how
+		$('send-choice').hidden = true;
 		$('send-info').textContent = d.why;
 		return;
 	}
