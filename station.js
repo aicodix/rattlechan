@@ -13,6 +13,14 @@
 // their BLAKE2s hash in data/own.json); everything else is logged. A key's
 // call sign, name and avatar are learned from its verified signed posts
 // and Avatars, newest arrival first, and only shown once it is trusted.
+//
+// Revocations (SPEC.md, Client policy): a verified Signed(key, Revoke) of a
+// trusted key is kept forever in revocations/, from the arrival of its
+// frame, also when the station sent it itself. Revocations of other keys
+// stay ordinary frames and take effect, with that arrival, once the user
+// trusts the key. A retired key's posts that arrived after are marked; a
+// compromised key loses trust, name and avatar on all its posts, and its
+// frames arriving after the revocation are no longer precious.
 
 import { parse, walk, MalformedError, T } from './records.js';
 import { Reassembler } from './hydra.js';
@@ -25,8 +33,10 @@ export const hex = (a) => Array.from(a, (b) => b.toString(16).padStart(2, '0')).
 //   postKeys    every key whose verified signature covers a post
 //   avatarKeys  every key an Avatar is for (the innermost signer)
 //   avatars     [{ key, bytes }], learned  [{ key, callSign, name }]
-export function facts(nodes) {
-	const out = { postKeys: new Set(), avatarKeys: new Set(), avatars: [], learned: [] };
+//   revocations [{ key, reason, bytes }], each a Signed(key, Revoke) of 99
+//               bytes, cut from payload when given
+export function facts(nodes, payload = null) {
+	const out = { postKeys: new Set(), avatarKeys: new Set(), avatars: [], learned: [], revocations: [] };
 	const keysOf = (path) => {
 		if (path.some((p) => p.dropped || (p.type === T.SIGNED && p.verified !== true)))
 			return null;
@@ -45,6 +55,10 @@ export function facts(nodes) {
 			continue;
 		if (node.type === T.AVATAR) {
 			avatar(node, keys);
+		} else if (node.type === T.REVOKE_RETIRED || node.type === T.REVOKE_COMPROMISED) {
+			const signed = path[path.length - 1];
+			if (node.effective && signed && signed.end - signed.offset === 99)
+				out.revocations.push({ key: hex(signed.key), reason: node.reason, bytes: payload && payload.slice(signed.offset, signed.end) });
 		} else if (node.type === T.TOPIC || node.type === T.REPLY) {
 			for (const k of keys)
 				out.postKeys.add(hex(k));
@@ -80,6 +94,46 @@ export async function openStation({ store, crypto = null, hydra = null }) {
 	const trusted = new Set(trustData.trusted ?? []);
 	const own = new Set((await store.getData('own'))?.frames ?? []);
 	const saveOwn = () => store.putData('own', { frames: [...own].sort() });
+
+	// key hex -> { retired, compromised }: the arrival of each kept
+	// revocation, or null
+	const revoked = new Map();
+	const revokedAt = (key) => revoked.get(key) ?? { retired: null, compromised: null };
+	// counts the changes, so callers can tell whether to move frames
+	let changes = 0;
+	const note = (key, reason, arrival) => {
+		const r = { ...revokedAt(key) };
+		if (r[reason] !== null && r[reason] <= arrival)
+			return;
+		r[reason] = arrival;
+		revoked.set(key, r);
+		++changes;
+	};
+	for (const r of await store.revocations())
+		note(r.key, r.reason, r.arrival);
+	// key hex -> [{ reason, bytes, arrival }]: verified revocations of
+	// keys not trusted when they came, for when they are
+	const unkept = new Map();
+	// keep a revocation if its key is trusted, otherwise remember it
+	const revocation = async (r, arrival) => {
+		if (!r.bytes)
+			return;
+		if (trusted.has(r.key)) {
+			await store.addRevocation(r.bytes, arrival);
+			note(r.key, r.reason, arrival);
+		} else {
+			if (!unkept.has(r.key))
+				unkept.set(r.key, []);
+			unkept.get(r.key).push({ reason: r.reason, bytes: r.bytes, arrival });
+		}
+	};
+	const revocations = async (e) => {
+		for (const f of [e.facts, ...e.fragments.map((x) => x.facts)])
+			for (const r of f?.revocations ?? [])
+				await revocation(r, e.arrival);
+	};
+	// trusted and not compromised
+	const trustedNow = (key) => trusted.has(key) && revokedAt(key).compromised === null;
 
 	// key hex -> { key, callSign, name, avatar, avatarFrame, arrival }
 	const keys = new Map();
@@ -121,7 +175,7 @@ export async function openStation({ store, crypto = null, hydra = null }) {
 				continue;
 			if (r.payload) {
 				const a = analyze(r.payload, true);
-				out.push({ key: r.key, size: r.payload.length, ...a, facts: a.nodes ? facts(a.nodes) : null });
+				out.push({ key: r.key, size: r.payload.length, ...a, facts: a.nodes ? facts(a.nodes, r.payload) : null });
 			} else {
 				out.push(r);
 			}
@@ -181,7 +235,12 @@ export async function openStation({ store, crypto = null, hydra = null }) {
 				add(s.facts);
 		return out;
 	};
-	const precious = (e) => own.has(e.hash) || [...keysIn(e)].some((k) => trusted.has(k));
+	// a compromised key no longer vouches for frames arriving after
+	const vouches = (k, arrival) => {
+		const c = revokedAt(k).compromised;
+		return trusted.has(k) && (c === null || arrival < c);
+	};
+	const precious = (e) => own.has(e.hash) || [...keysIn(e)].some((k) => vouches(k, e.arrival));
 
 	const rename = (e, name) => {
 		frames.delete(e.name);
@@ -227,7 +286,7 @@ export async function openStation({ store, crypto = null, hydra = null }) {
 			sent: own.has(hash),
 			size: bytes.length,
 			...a,
-			facts: a.nodes ? facts(a.nodes) : null,
+			facts: a.nodes ? facts(a.nodes, bytes) : null,
 			fragments: a.nodes ? reassemble(a.nodes) : [],
 		};
 	};
@@ -254,8 +313,11 @@ export async function openStation({ store, crypto = null, hydra = null }) {
 		e.tier = e.name && tier;
 		register(e);
 		learn(e);
-		// a reassembled payload may lift the frames of its set
-		if (e.fragments.some((f) => f.facts))
+		const before = changes;
+		await revocations(e);
+		// a reassembled payload may lift the frames of its set, a
+		// revocation drop a key's
+		if (e.fragments.some((f) => f.facts) || changes !== before)
 			await retier();
 		return e;
 	};
@@ -274,6 +336,8 @@ export async function openStation({ store, crypto = null, hydra = null }) {
 		e.tier = e.name && 'precious';
 		register(e);
 		learn(e);
+		await revocations(e);
+		await retier();
 		return e;
 	};
 
@@ -289,6 +353,7 @@ export async function openStation({ store, crypto = null, hydra = null }) {
 			all.push(e);
 			register(e);
 			learn(e);
+			await revocations(e);
 		}
 		await retier();
 		// forget own frames that were evicted
@@ -311,11 +376,24 @@ export async function openStation({ store, crypto = null, hydra = null }) {
 			trusted.delete(key);
 		const now = await store.getData('trust') ?? {};
 		await store.putData('trust', { ...now, trusted: [...trusted].sort() });
+		// revocations seen before take effect now, from when they came
+		if (on)
+			for (const r of unkept.get(key) ?? [])
+				await revocation({ key, ...r }, r.arrival);
+		unkept.delete(key);
 		return retier();
 	};
 
-	// what the station knows about a key (hex)
-	const keyInfo = (key) => ({ ...(keys.get(key) ?? { key, callSign: null, name: null, avatar: null }), trusted: trusted.has(key) });
+	// What the station knows about a key (hex). trusted is false once it is
+	// compromised; revoked has the arrival of each kept revocation, and
+	// unkept the reasons of verified revocations seen while it wasn't
+	// trusted.
+	const keyInfo = (key) => ({
+		...(keys.get(key) ?? { key, callSign: null, name: null, avatar: null }),
+		trusted: trustedNow(key),
+		revoked: revokedAt(key),
+		unkept: [...new Set((unkept.get(key) ?? []).map((r) => r.reason))],
+	});
 
 	// sets of Fragments still waiting for blocks
 	const waiting = () => reassembler ? reassembler.missing() : [];

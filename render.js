@@ -90,6 +90,9 @@ function recipient(keyBytes, what) {
 	} else {
 		chip.append('fingerprint ', el('span.key', short(keyBytes)));
 	}
+	const status = revokedAs(info);
+	if (status)
+		chip.append(' ', el(status === 'compromised' ? 'span.bad' : 'span.warn', status));
 	chip.title = key.match(/.{4}/g).join(' ');
 	return chip;
 }
@@ -157,8 +160,16 @@ function nameOf(name) {
 	return e;
 }
 
+// a key's revocation as it stands: 'compromised', 'retired' or null
+const revokedAs = (info) => info.revoked?.compromised != null ? 'compromised' : info.revoked?.retired != null ? 'retired' : null;
+
+// the arrival of the entry being drawn: a retired key's posts are marked
+// from its revocation on
+let drawing = null;
+
 // who signed: face, then call sign and name once trusted, the short
-// fingerprint otherwise, and the button to trust or stop trusting
+// fingerprint otherwise, and the button to trust or stop trusting. A
+// compromised key gets no button: trust can't bring it back.
 function signer(n) {
 	const key = hex(n.key);
 	const info = station.keyInfo(key);
@@ -172,8 +183,15 @@ function signer(n) {
 	} else {
 		who.append('fingerprint ', el('span.key', short(n.key)));
 	}
+	const status = revokedAs(info);
+	const mark = status === 'compromised' ? el('span.bad', 'compromised')
+		: status === 'retired' && drawing !== null && drawing >= info.revoked.retired ? el('span.warn', 'retired key') : null;
+	if (mark)
+		who.append(' ', mark);
 	if (info.own)
 		return [face(key), who, el('span.ok', 'your key')];
+	if (status === 'compromised')
+		return [face(key), who];
 	if (info.trusted)
 		who.append(' ', el('span.ok', 'trusted'));
 	const button = el('button.small.trust', info.trusted ? 'Untrust' : 'Trust');
@@ -201,6 +219,7 @@ export function confirmTrust(key) {
 		identicon(fromHex(key), 64),
 		fp,
 		says.length ? el('p', 'It says it is ', ...says, '.') : el('p.dim', 'It has not said who it is.'),
+		info.unkept?.length ? el('p.warn', `It was revoked as ${info.unkept.includes('compromised') ? 'compromised: trusting it keeps the revocation, and its posts stay untrusted' : 'retired: trusting it keeps the revocation, and marks its posts from then on'}.`) : null,
 		el('p.dim', 'Compare the fingerprint with its owner, in person or over a channel you trust. Posts signed by a trusted key show its call sign, name and avatar, and are kept in the precious tier.'),
 		el('div.row', cancel, ok));
 	document.body.append(dialog);
@@ -336,6 +355,19 @@ function picture(n, label, key) {
 	return el('div.part', b, label === 'avatar' && key ? el('span.dim', ` for fingerprint ${key.slice(0, 8)}`) : '');
 }
 
+// whether a Revoke counts: not where it is, kept, or waiting for the key
+// to be trusted
+function revocationNote(n, key) {
+	if (!n.effective)
+		return ' (no effect here)';
+	const info = key ? station.keyInfo(key) : null;
+	if (info?.revoked?.[n.reason] != null)
+		return el('span.dim', ' (kept)');
+	if (info?.unkept?.includes(n.reason))
+		return el('span.dim', ' (counts once you trust the key)');
+	return '';
+}
+
 function leaf(n, key = null) {
 	switch (n.type) {
 	case T.TEXT_UTF8:
@@ -376,7 +408,7 @@ function leaf(n, key = null) {
 		return el('div.part.dim', `asks for ${n.needed} more blocks of root ${short(n.root)}`);
 	case T.REVOKE_RETIRED:
 	case T.REVOKE_COMPROMISED:
-		return el('div.part.warn', `revokes the key: ${n.reason}`, n.effective ? '' : ' (no effect here)');
+		return el('div.part.warn', `revokes the key: ${n.reason}`, revocationNote(n, key));
 	}
 	return el('div.part.dim', `unknown record 0x${n.type.toString(16).padStart(2, '0')}, ${bytes(n.body?.length ?? 0)}`);
 }
@@ -443,6 +475,15 @@ export function head(arrival, callSign, ...rest) {
 
 // a station entry (station.js): a frame as received
 export function entry(e) {
+	drawing = e.arrival;
+	try {
+		return entryBox(e);
+	} finally {
+		drawing = null;
+	}
+}
+
+function entryBox(e) {
 	const info = [];
 	if (e.mode !== null && e.mode !== undefined)
 		info.push(`mode ${e.mode}`);

@@ -87,6 +87,16 @@ function keyInfo(key) {
 	return own ? { ...info, own: true, callSign: own.callSign, name: own.name } : { ...info, own: false };
 }
 
+// whether an entry holds a revocation the station acts on
+const revokes = (e) => [e.facts, ...(e.fragments ?? []).map((f) => f.facts)].some((f) => f?.revocations.length);
+
+// after a revocation: the key cards, Sign as and the log change
+async function revoked() {
+	await fillKeys();
+	redraw();
+	refreshStorage();
+}
+
 // what the log shows, newest last: () => element, so it can be drawn
 // again when trust changes what an entry looks like
 let items = [];
@@ -127,6 +137,7 @@ view.configure({
 		if (on && !await view.confirmTrust(key))
 			return;
 		await station.setTrust(key, on);
+		await fillKeys();
 		redraw();
 		refreshStorage();
 	},
@@ -165,6 +176,8 @@ async function handle(events) {
 					arrival, callSign: ev.callSign || null, mode: ev.mode, snr: ev.snr, bitFlips: ev.bitFlips,
 				});
 				add(() => view.entry(e));
+				if (revokes(e))
+					await revoked();
 				status(`frame from ${ev.callSign || '—'}`);
 			} catch (err) {
 				const message = err.message;
@@ -612,12 +625,21 @@ function keyCard(k) {
 	remove.onclick = () => {
 		removeArea.hidden = !removeArea.hidden;
 	};
-	// sending one of its revocations, permanent, so behind typing REVOKE
+	// what the station knows of its revocations
+	const { revoked } = station.keyInfo(k.key);
+	const state = revoked.compromised !== null ? view.el('p.bad', `Compromised since ${view.when(revoked.compromised)}: it no longer signs, and stations that trust it stop trusting all its posts.`)
+		: revoked.retired !== null ? view.el('p.warn', `Retired since ${view.when(revoked.retired)}: it no longer signs.`)
+		: view.el('p.ok', 'Active');
+	// sending one of its revocations, permanent, so behind typing REVOKE;
+	// compromised overrides retired, never the other way round
 	const reason = view.el('select');
 	reason.setAttribute('aria-label', 'reason');
-	reason.append(view.el('option', 'retired: no longer used'), view.el('option', 'compromised: lost or stolen'));
-	reason.options[0].value = 'retired';
-	reason.options[1].value = 'compromised';
+	for (const [value, text] of [['retired', 'retired: no longer used'], ['compromised', 'compromised: lost or stolen']])
+		if (revoked[value] === null && revoked.compromised === null) {
+			const o = view.el('option', text);
+			o.value = value;
+			reason.append(o);
+		}
 	reason.value = 'compromised';
 	const word = view.el('input');
 	word.placeholder = 'REVOKE';
@@ -652,11 +674,13 @@ function keyCard(k) {
 		revokeStatus);
 	revokeArea.hidden = true;
 	const revoke = view.el('button.small', 'Revoke…');
+	revoke.hidden = reason.options.length === 0;
 	revoke.onclick = () => {
 		revokeArea.hidden = !revokeArea.hidden;
 	};
 	return view.el('article.key-card',
 		view.el('div.key-card-head', view.identicon(fromHex(k.key)), view.el('strong', k.label), view.el('span.key', k.key.slice(0, 8))),
+		state,
 		labelField, callFieldEl, nameField,
 		view.el('div.row', print, revoke, remove),
 		revokeArea,
@@ -674,15 +698,21 @@ async function fillKeys() {
 	$('key-list').replaceChildren(...list.map(keyCard));
 	const sel = $('signer');
 	const was = sel.value || recall('signer');
-	sel.replaceChildren(...list.map((k) => {
+	// a revoked key signs nothing new
+	const active = list.filter((k) => {
+		const r = station.keyInfo(k.key).revoked;
+		return r.retired === null && r.compromised === null;
+	});
+	sel.replaceChildren(...active.map((k) => {
 		const o = view.el('option', [k.label, k.callSign, k.name].filter(Boolean).join(' · '));
 		o.value = k.key;
 		return o;
 	}));
-	if (list.some((k) => k.key === was))
+	if (active.some((k) => k.key === was))
 		sel.value = was;
-	$('no-keys').hidden = list.length > 0;
-	$('signer-field').hidden = list.length === 0;
+	$('no-keys').textContent = list.length ? 'Every key here is revoked: add a new key in Station first.' : 'Every post is signed: add a key in Station first.';
+	$('no-keys').hidden = active.length > 0;
+	$('signer-field').hidden = active.length === 0;
 	estimate();
 }
 
@@ -757,7 +787,8 @@ function fillKnownKeys() {
 	$('known-keys').replaceChildren(...station.seen().map((k) => {
 		const info = keyInfo(k.key);
 		const name = info.name && (typeof info.name === 'string' ? info.name : decodeText(info.name));
-		const o = view.el('option', [info.own ? 'your key' : info.trusted ? 'trusted' : null, info.callSign, name, k.key.slice(0, 8)].filter(Boolean).join(' · '));
+		const revoked = info.revoked.compromised !== null ? 'compromised' : info.revoked.retired !== null ? 'retired' : null;
+		const o = view.el('option', [info.own ? 'your key' : info.trusted ? 'trusted' : null, revoked, info.callSign, name, k.key.slice(0, 8)].filter(Boolean).join(' · '));
 		o.value = k.key;
 		return o;
 	}));
@@ -822,7 +853,7 @@ async function draft() {
 	}
 	const k = keys && (await keys.list()).find((x) => x.key === $('signer').value);
 	if (!k)
-		return { why: keys ? 'Every post is signed: add a key in Station first.' : 'CRYPTO failed to load, so nothing can be signed.' };
+		return { why: keys ? $('no-keys').textContent : 'CRYPTO failed to load, so nothing can be signed.' };
 	// the choice to include call sign and name, for keys that have them
 	$('introduce-field').hidden = !k.callSign && !k.name;
 	$('introduce-who').textContent = [k.callSign, k.name].filter(Boolean).join(' · ');
@@ -956,12 +987,7 @@ async function transmit(d, how, say, stop) {
 	const callSign = d.o.callSign || 'ANONYMOUS';
 	const s = plan(E, d, how);
 	const c = chain(E, s.frames, { seconds: s.seconds, snr: s.snr, callSign });
-	// the station's own frames, kept as sent
 	const arrival = Date.now();
-	for (const [i, f] of s.frames.entries()) {
-		const e = await station.sent(f, { arrival, callSign: d.o.callSign || null, mode: c.modes[i] });
-		add(() => view.entry(e));
-	}
 	deafUntil = Infinity;
 	sending = play(ctx, c.audio);
 	$('send-button').disabled = true;
@@ -972,6 +998,18 @@ async function transmit(d, how, say, stop) {
 	try {
 		const complete = await sending.done;
 		say(complete ? 'Sent.' : 'Stopped.');
+		// the station's own frames, kept as sent once all of them went
+		// out; a revocation among them counts from then on
+		if (complete) {
+			let revoking = false;
+			for (const [i, f] of s.frames.entries()) {
+				const e = await station.sent(f, { arrival, callSign: d.o.callSign || null, mode: c.modes[i] });
+				add(() => view.entry(e));
+				revoking ||= revokes(e);
+			}
+			if (revoking)
+				await revoked();
+		}
 		return complete;
 	} finally {
 		sending = null;

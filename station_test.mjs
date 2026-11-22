@@ -211,6 +211,73 @@ check('bad block dropped', typeof (await S.receive(bad)).error, 'string');
 	check('replay: evicted own frames are forgotten', (await st.getData('own')).frames.length, 0);
 }
 
+// ---------------------------------------------------------- revocations
+
+{
+	const st = await openStore(memoryBackend());
+	const S1 = await openStation({ store: st, crypto: C, hydra: H });
+	const k = C.newPrivateKey(), id = hex(C.fingerprint(k));
+	const r = C.revocations(k);
+	const said = (t) => R.payload([C.signRecords(k, R.fromCall('DL1ABC'), R.topic(1763380000, t, R.textUTF8(t)))]);
+	await S1.setTrust(id, true);
+	const before = await S1.receive(said('before'), { arrival: 1000 });
+	check('revocation: trusted post precious', before.tier, 'precious');
+	check('revocation: facts', before.facts.revocations.length, 0);
+
+	// retired: kept from its arrival, trust stays
+	const ret = await S1.receive(R.payload([r.retired]), { arrival: 2000 });
+	check('retired: found', ret.facts.revocations.map((x) => x.reason).join(), 'retired');
+	check('retired: bytes cut from the padded payload', hex(ret.facts.revocations[0].bytes), hex(r.retired));
+	check('retired: kept forever', (await st.revocations()).map((x) => `${x.reason} ${x.arrival}`).join(), 'retired 2000');
+	check('retired: status', JSON.stringify(S1.keyInfo(id).revoked), '{"retired":2000,"compromised":null}');
+	check('retired: still trusted', S1.keyInfo(id).trusted, true);
+	const later = await S1.receive(said('later'), { arrival: 3000 });
+	check('retired: later posts stay precious', later.tier, 'precious');
+
+	// a Signed with more than the Revoke isn't a revocation
+	const crowded = await S1.receive(R.payload([C.signRecords(k, R.revoke('compromised'), R.textUTF8('x'))]), { arrival: 3600 });
+	check('compromised with more: nothing', crowded.facts.revocations.length, 0);
+	check('still not compromised', S1.keyInfo(id).revoked.compromised, null);
+
+	// compromised: trust gone, frames from then on logged, earlier stay
+	await S1.receive(R.payload([r.compromised]), { arrival: 4000 });
+	check('compromised: status', S1.keyInfo(id).revoked.compromised, 4000);
+	check('compromised: not trusted', S1.keyInfo(id).trusted, false);
+	check('compromised: earlier frames stay precious', [before, later].map((x) => x.tier).join(), 'precious,precious');
+	const after = await S1.receive(said('after'), { arrival: 5000 });
+	check('compromised: later frames logged', after.tier, 'logged');
+	// the same again changes nothing
+	await S1.receive(R.payload([r.compromised]), { arrival: 6000 });
+	check('compromised: earliest kept', (await st.revocations()).map((x) => `${x.reason} ${x.arrival}`).join(), 'retired 2000,compromised 4000');
+
+	// a new station on the same store knows it all
+	const S2 = await openStation({ store: st, crypto: C, hydra: H });
+	await S2.replay();
+	check('replay: status', JSON.stringify(S2.keyInfo(id).revoked), '{"retired":2000,"compromised":4000}');
+	check('replay: tiers', (await st.frames('precious')).length, 2);
+
+	// an untrusted key's revocation is only remembered, until trusted
+	const st3 = await openStore(memoryBackend());
+	const S3 = await openStation({ store: st3, crypto: C, hydra: H });
+	await S3.receive(said('hello'), { arrival: 1000 });
+	const e3 = await S3.receive(R.payload([r.compromised]), { arrival: 2000 });
+	check('untrusted: logged frame', e3.tier, 'logged');
+	check('untrusted: not kept', (await st3.revocations()).length, 0);
+	check('untrusted: seen', S3.keyInfo(id).unkept.join(), 'compromised');
+	check('untrusted: no status', S3.keyInfo(id).revoked.compromised, null);
+	await S3.setTrust(id, true);
+	check('trusted later: kept with its arrival', (await st3.revocations()).map((x) => `${x.reason} ${x.arrival}`).join(), 'compromised 2000');
+	check('trusted later: compromised', S3.keyInfo(id).trusted, false);
+	check('trusted later: earlier post precious', (await st3.frames('precious')).length, 1);
+
+	// own revocations count right away
+	const st4 = await openStore(memoryBackend());
+	const S4 = await openStation({ store: st4, crypto: C, hydra: H });
+	await S4.setTrust(id, true);
+	await S4.sent(R.payload([r.retired]), { arrival: 7000 });
+	check('sent: retired at once', S4.keyInfo(id).revoked.retired, 7000);
+}
+
 console.log(failed ? `${failed} of ${checks} checks failed` : `all ${checks} checks passed`);
 if (failed)
 	process.exit(1);
