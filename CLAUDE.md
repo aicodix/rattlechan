@@ -65,4 +65,6 @@ Every module has its <name>_test.mjs; the browser halves are encodings_test.html
 
 - [ ] QR codes for the printed revocations (qr.js, no third-party library; a 99-byte revocation fits version 6).
 - [ ] Scanning a revocation's QR code into the Hex field, with `BarcodeDetector` where the browser has it.
+- [ ] Boards for group keys: To-Group-Key Topics are left out of the tree until the GUI can show only posts the group key re-signed, `Signed(group key, Signed(member, …))`.
+- [ ] Requests: Request-Post for a Reply whose parent hasn't arrived (the Elsewhere board) and Request-Root for waiting fragment sets, and answering requests at most once in a while.
 - [ ] Playing Codec2: libcodec2's decoder compiled to WebAssembly in its own LGPL-2.1 repo, loaded as a separate module only when Play is pressed; the encoder later, for voice posts. Save-only until then.
