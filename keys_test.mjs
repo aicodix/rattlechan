@@ -3,7 +3,7 @@
 // signing, and the revocations made with each key.
 
 import { readFile } from 'node:fs/promises';
-import { openKeys, isWebP } from './keys.js';
+import { openKeys } from './keys.js';
 import { memoryBackend, openStore } from './storage.js';
 import { exportArchive, importArchive } from './archive.js';
 import { loadCrypto } from './crypto.js';
@@ -98,14 +98,12 @@ check('secrets archive: same signatures', hex(sign2(R.textUTF8('x'))), hex(sign(
 
 // avatars: WebP only, kept as given, exported with the key
 const webp = new Uint8Array(await readFile(new URL('./examples/avatar.webp', import.meta.url)));
-check('WebP: the example', isWebP(webp), true);
-check('WebP: cut short', isWebP(webp.subarray(0, webp.length - 1)), false);
-check('WebP: not a PNG', isWebP(Uint8Array.of(0x89, 0x50, 0x4E, 0x47, 13, 10, 26, 10, 0, 0, 0, 13, 0, 0, 0, 0, 0, 0, 0, 0)), false);
 check('no avatar yet', (await K.list())[0].avatar, null);
 await K.update(anna.key, { avatar: webp });
 check('avatar kept', hex((await K.list())[0].avatar), hex(webp));
 check('label unchanged', (await K.list())[0].label, 'Personal');
 await rejects('a PNG as avatar', () => K.update(anna.key, { avatar: Uint8Array.of(1, 2, 3) }));
+await rejects('a 192x120 picture as avatar', async () => K.update(anna.key, { avatar: new Uint8Array(await readFile(new URL('./examples/dusk.webp', import.meta.url))) }));
 const withAvatar = await openStore(memoryBackend());
 await importArchive(withAvatar.backend, await exportArchive(store.backend, { secrets: true }));
 check('avatar in the secrets archive', hex((await (await openKeys(withAvatar, C)).list())[0].avatar), hex(webp));

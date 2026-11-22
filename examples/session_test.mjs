@@ -79,7 +79,7 @@ for (const rate of [48000, 44100]) {
 	const names = S.seen().map((k) => `${k.callSign} ${k.name ? R.decodeText(k.name) : ''}`.trim()).sort().join(', ');
 	check(`${rate}: learned who the keys are`, names, 'DL1ABC Anna, JA1ABC, PA3XYZ Jan, VU2ABC Arjun');
 	const anna = S.seen().find((k) => k.callSign === 'DL1ABC');
-	check(`${rate}: Anna's avatar`, anna.avatar?.length, (await file('examples/dusk.webp')).length === anna.avatar?.length ? -1 : 3730);
+	check(`${rate}: Anna's avatar`, hex(anna.avatar ?? []), hex(await file('examples/avatar.webp')));
 	const to = entries.flatMap((e) => (e.nodes ?? []).flatMap((n) => (n.children ?? [n]).flatMap((c) => c.prefixes ?? []))).filter((p) => p.type >= R.T.TO_KEY).map((p) => p.name);
 	check(`${rate}: addressed to a key, a call sign and a board`, to.sort().join(), 'TO_CALL,TO_GROUP_NAME,TO_KEY');
 }

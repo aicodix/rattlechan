@@ -401,6 +401,8 @@ function leaf(n, key = null) {
 	case T.WEBP:
 		return picture(n, 'picture', key);
 	case T.AVATAR:
+		if (n.ignored)
+			return el('div.part.dim', `avatar ignored: ${n.ignored}`);
 		return picture(n, 'avatar', key);
 	case T.CODEC2:
 		return el('div.part', `🔊 Codec2 mode ${n.mode}, ${bytes(n.body.length - 1)}`);

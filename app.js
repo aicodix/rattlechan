@@ -687,7 +687,7 @@ function keyCard(k) {
 			await keys.update(k.key, { avatar: new Uint8Array(await f.arrayBuffer()) });
 			fillKeys();
 		} catch (err) {
-			avatarInfo.textContent = /WebP/.test(err.message) ? `${f.name} isn't a WebP file.` : err.message;
+			avatarInfo.textContent = `${f.name}: ${err.message}.`;
 		}
 	};
 	const choose = view.el('button.small', k.avatar ? 'Change avatar…' : 'Choose avatar…');
@@ -722,7 +722,7 @@ function keyCard(k) {
 			avatarInfo.textContent = err.message;
 		});
 	else if (!k.avatar)
-		avatarInfo.textContent = 'No avatar: stations show the identicon. A small WebP picture or animation, a few KiB, keeps the airtime short.';
+		avatarInfo.textContent = 'No avatar: stations show the identicon. An avatar is a square WebP picture or animation from 128x128 to 512x512 pixels in at most 8 KiB; stations ignore any other.';
 	const revoke = view.el('button.small', 'Revoke…');
 	revoke.hidden = reason.options.length === 0;
 	revoke.onclick = () => {

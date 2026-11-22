@@ -527,6 +527,49 @@ check('Request-Root is 19 or 35 bytes', R.requestRoot(1, fill(16, 0)).length + '
 	check('payload padded with zeros', hex(R.payload([R.textUTF8('a')], 5)), '4001610000');
 }
 
+// ------------------------------------------------------------- avatars
+
+{
+	// WebP headers of each kind, padded to n bytes, the RIFF size matching
+	const riff = (chunk, head, n = 64) => {
+		const b = new Uint8Array(n);
+		b.set([...'RIFF'].map((c) => c.charCodeAt(0)), 0);
+		new DataView(b.buffer).setUint32(4, n - 8, true);
+		b.set([...'WEBP'].map((c) => c.charCodeAt(0)), 8);
+		b.set([...chunk].map((c) => c.charCodeAt(0)), 12);
+		b.set(head, 20);
+		return b;
+	};
+	const vp8x = (w, h, n) => riff('VP8X', [0x12, 0, 0, 0, (w - 1) & 255, (w - 1) >> 8, 0, (h - 1) & 255, (h - 1) >> 8, 0], n);
+	const vp8l = (w, h, n) => {
+		const v = (w - 1) | (h - 1) << 14;
+		return riff('VP8L', [0x2F, v & 255, v >> 8 & 255, v >> 16 & 255, v >>> 24], n);
+	};
+	const vp8 = (w, h, n) => riff('VP8 ', [0, 0, 0, 0x9D, 0x01, 0x2A, w & 255, w >> 8, h & 255, h >> 8], n);
+	const size = (b) => JSON.stringify(R.webpSize(b));
+	check('webpSize: VP8X', size(vp8x(300, 200)), '{"width":300,"height":200}');
+	check('webpSize: VP8L', size(vp8l(256, 129)), '{"width":256,"height":129}');
+	check('webpSize: VP8', size(vp8(128, 512)), '{"width":128,"height":512}');
+	check('webpSize: RIFF size wrong', R.webpSize(vp8(128, 128).subarray(0, 63)), null);
+	check('webpSize: not WEBP', R.webpSize(Uint8Array.from({ length: 64 })), null);
+	check('webpSize: VP8L without signature', R.webpSize(riff('VP8L', [0])), null);
+	check('webpSize: VP8 without start code', R.webpSize(riff('VP8 ', [0, 0, 0, 1, 2, 3])), null);
+	check('avatar: 128x128', R.avatarProblem(vp8(128, 128)), null);
+	check('avatar: 512x512 lossless', R.avatarProblem(vp8l(512, 512)), null);
+	check('avatar: animated 256x256 of 8192 bytes', R.avatarProblem(vp8x(256, 256, 8192)), null);
+	check('avatar: 8193 bytes', R.avatarProblem(vp8x(256, 256, 8193)), '8193 bytes, more than 8192');
+	check('avatar: 127x127', R.avatarProblem(vp8(127, 127)), '127x127, not from 128x128 to 512x512');
+	check('avatar: 513x513', R.avatarProblem(vp8x(513, 513)), '513x513, not from 128x128 to 512x512');
+	check('avatar: not square', R.avatarProblem(vp8l(256, 200)), '256x200, not square');
+	check('avatar: a PNG', R.avatarProblem(Uint8Array.of(0x89, 0x50, 0x4E, 0x47, 13, 10, 26, 10)), 'not a WebP file');
+
+	// a received Avatar outside the limits is ignored, not malformed
+	const small = R.parse(R.payload([R.avatar(vp8(64, 64))]));
+	check('parse: small avatar kept as a record', small[0].type, R.T.AVATAR);
+	check('parse: small avatar ignored', small[0].ignored, '64x64, not from 128x128 to 512x512');
+	check('parse: good avatar not ignored', R.parse(R.payload([R.avatar(vp8(200, 200))]))[0].ignored, null);
+}
+
 console.log(failed ? `${failed} of ${checks} checks failed` : `all ${checks} checks passed`);
 if (failed)
 	process.exit(1);

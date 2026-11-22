@@ -5,19 +5,17 @@
 // lost). Private keys never leave secrets/: exports put them only in the
 // secrets archive.
 
+import { avatarProblem } from './records.js';
+
 const hex = (a) => Array.from(a, (b) => b.toString(16).padStart(2, '0')).join('');
 const fromHex = (h) => Uint8Array.from(h.match(/../g), (b) => parseInt(b, 16));
 
 const CALL = /^[A-Z0-9/-]{1,9}$/;
 
-// a WebP file: a RIFF container of type WEBP whose size matches
-export const isWebP = (b) => b instanceof Uint8Array && b.length >= 20
-	&& String.fromCharCode(...b.subarray(0, 4)) === 'RIFF' && String.fromCharCode(...b.subarray(8, 12)) === 'WEBP'
-	&& (b[4] | b[5] << 8 | b[6] << 16 | b[7] << 24) >>> 0 === b.length - 8;
-
 function checkFields({ label, callSign, name, avatar }) {
-	if (avatar !== undefined && avatar !== null && !isWebP(avatar))
-		throw new RangeError('an avatar is a WebP file');
+	const why = avatar === undefined || avatar === null ? null : avatarProblem(avatar);
+	if (why)
+		throw new RangeError(`stations ignore this avatar: ${why}`);
 	if (label !== undefined && (typeof label !== 'string' || !label.trim()))
 		throw new RangeError('a key needs a label');
 	if (callSign !== undefined && callSign !== null && callSign !== '' && !CALL.test(callSign))
@@ -28,8 +26,8 @@ function checkFields({ label, callSign, name, avatar }) {
 
 // The key ring of a store, with crypto from loadCrypto(). Keys are plain
 // objects: { key (fingerprint hex), label, callSign, name, created,
-// revocations: { retired, compromised } (hex), avatar (WebP bytes or
-// null) }; the avatar is kept as hex; the private key stays
+// revocations: { retired, compromised } (hex), avatar (WebP bytes
+// within the limits of records.js, or null) }; the avatar is kept as hex; the private key stays
 // inside, reachable only through signer().
 export async function openKeys(store, crypto) {
 	const load = async () => (await store.getSecret('keys'))?.keys ?? [];

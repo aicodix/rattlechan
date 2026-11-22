@@ -114,7 +114,7 @@ check('bad block dropped', typeof (await S.receive(bad)).error, 'string');
 	const T1 = await openStation({ store: st, crypto: C, hydra: H });
 	const anna = C.newPrivateKey(), annaKey = hex(C.fingerprint(anna));
 	const other = C.newPrivateKey();
-	const pic = Uint8Array.of(1, 2, 3);
+	const pic = new Uint8Array(await file('examples/avatar.webp'));
 
 	let e = await T1.receive(R.payload([C.signRecords(anna, R.fromCall('DL1ABC'), R.fromName(R.textUTF8('Anna')), post)]));
 	check('untrusted: logged', e.tier, 'logged');
@@ -122,7 +122,14 @@ check('bad block dropped', typeof (await S.receive(bad)).error, 'string');
 	check('learned name', R.decodeText(T1.keyInfo(annaKey).name), 'Anna');
 	check('not trusted yet', T1.keyInfo(annaKey).trusted, false);
 	const avatarFrame = await T1.receive(R.payload([C.signRecords(anna, R.avatar(pic))]));
-	check('learned avatar', hex(T1.keyInfo(annaKey).avatar), '010203');
+	check('learned avatar', hex(T1.keyInfo(annaKey).avatar), hex(pic));
+	// outside the limits an avatar is ignored: not learned, not precious
+	const dusk = new Uint8Array(await file('examples/dusk.webp'));
+	const ignored = await T1.receive(R.payload([C.signRecords(anna, R.avatar(dusk))]));
+	check('ignored avatar: kept as a frame', ignored.error === undefined && ignored.tier, 'logged');
+	check('ignored avatar: not learned', hex(T1.keyInfo(annaKey).avatar), hex(pic));
+	check('ignored avatar: no avatar key', ignored.facts.avatarKeys.size, 0);
+	await st.removeFrame(ignored.name);
 	await T1.receive(R.payload([C.signRecords(other, post)]));
 	const unsigned = await T1.receive(R.payload([R.fromCall('DL1ABC'), R.textUTF8('bare')]));
 	// a forged signature teaches nothing

@@ -43,7 +43,8 @@ export function facts(nodes, payload = null) {
 		return path.filter((p) => p.type === T.SIGNED).map((p) => p.key);
 	};
 	const avatar = (node, keys) => {
-		if (!keys.length)
+		// outside the limits an avatar is ignored
+		if (!keys.length || node.ignored)
 			return;
 		const key = hex(keys[keys.length - 1]);
 		out.avatarKeys.add(key);
