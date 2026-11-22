@@ -321,8 +321,8 @@ a { color: var(--accent); }
 }
 .row-card strong { overflow-wrap: anywhere; }
 .row-card .dim, .row-card .ok, .row-card .warn { font-size: 14px; }
-.who { display: inline-flex; align-items: center; gap: 4px; vertical-align: middle; }
-.who .identicon { border-radius: 3px; }
+.row-card .who { display: inline-flex; align-items: center; gap: 4px; vertical-align: middle; }
+.row-card .who .identicon { border-radius: 3px; }
 .thread-bar { margin: 4px 0 8px; }
 .thread-subject { overflow-wrap: anywhere; }
 .tree-node { margin: 0; }
