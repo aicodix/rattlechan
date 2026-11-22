@@ -919,6 +919,11 @@ async function draft() {
 	$('introduce-field').hidden = !k.callSign && !k.name;
 	$('introduce-who').textContent = [k.callSign, k.name].filter(Boolean).join(' · ');
 	const introduce = !$('introduce-field').hidden && $('introduce').checked;
+	// and to include its avatar, for keys that have one
+	$('include-avatar-field').hidden = !k.avatar;
+	if (k.avatar)
+		$('include-avatar-size').textContent = view.bytes(k.avatar.length);
+	const withAvatar = !!k.avatar && $('include-avatar').checked;
 	const text = $('text').value;
 	if (!text.trim())
 		return { why: 'Write something.' };
@@ -935,6 +940,7 @@ async function draft() {
 		// and stations remember them from earlier posts
 		callSign: introduce ? k.callSign : null, name: introduce ? k.name : null, to: where.to,
 		sign: await keys.signer(k.key),
+		avatar: withAvatar ? k.avatar : null,
 	});
 	return { payload, o };
 }
@@ -1032,6 +1038,7 @@ const typed = () => {
 	estimate();
 };
 $('introduce').onchange = estimate;
+$('include-avatar').onchange = estimate;
 $('subject').oninput = typed;
 $('text').oninput = typed;
 $('hex').oninput = typed;
@@ -1097,6 +1104,7 @@ $('send-button').onclick = async () => {
 			$('subject').value = '';
 			$('hex').value = '';
 			$('introduce').checked = false;
+			$('include-avatar').checked = false;
 			$('to-kind').value = '';
 			$('to-value').value = '';
 			setTo();

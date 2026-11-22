@@ -71,6 +71,17 @@ check('message: From-Call', p[0].prefixes[0].handle, 'DL1ABC');
 		check(`signed ${kind}: From inside`, inner.prefixes.length, 2);
 		check(`signed ${kind}: ID`, kind === 'message' || inner.id !== null, true);
 	}
+	// a post with the avatar beside it: same post, same ID
+	{
+		const pic = new Uint8Array(await file('examples/avatar.webp'));
+		const args = { kind: 'topic', subject: 'Hi', text: 'with avatar', callSign: 'DL1ABC', timestamp: 1763700000, sign };
+		const w = R.parse(compose({ ...args, avatar: pic }), { verify: C.verify });
+		const wo = R.parse(compose(args), { verify: C.verify });
+		check('post with avatar: verifies', w[0].verified, true);
+		check('post with avatar: Topic, then Avatar', w[0].children.map((n) => n.name).join(), 'TOPIC,AVATAR');
+		check('post with avatar: From stays on the Topic', w[0].children[0].prefixes.length, 1);
+		check('post with avatar: same post ID', hex(w[0].children[0].id), hex(wo[0].children[0].id));
+	}
 	// an Avatar, with and without From
 	const webp = new Uint8Array(await file('examples/avatar.webp'));
 	const a = R.parse(composeAvatar({ avatar: webp, callSign: 'DL1ABC', name: 'Anna', sign }), { verify: C.verify });

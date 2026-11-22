@@ -36,8 +36,13 @@ export const needs = (mode) => THRESHOLDS[mode & 31];
 // A Topic goes where to sends it (SPEC.md, Where a post goes), or to
 // everyone without it: { call } a call sign, { name } a name, { key } a
 // 32-byte key, { group } a group name, a board.
-export function compose({ kind, subject = '', text = '', parent = null, callSign = null, name = null, to = null, timestamp = Math.floor(Date.now() / 1000), sign = null }) {
+//
+// avatar, WebP bytes, goes beside the post as a bare Avatar record, inside
+// the same Signed record, so the post and its ID stay as they are.
+export function compose({ kind, subject = '', text = '', parent = null, callSign = null, name = null, to = null, timestamp = Math.floor(Date.now() / 1000), sign = null, avatar = null }) {
 	const records = post({ kind, subject, text, parent, callSign, name, to, timestamp });
+	if (avatar)
+		records.push(R.avatar(avatar));
 	return R.payload(sign ? [sign(...records)] : records);
 }
 
