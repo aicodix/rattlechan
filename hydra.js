@@ -177,6 +177,11 @@ function wrap(wasm) {
 // Collects blocks by root, header and length, and decodes once K distinct
 // valid blocks of one set are there. Memory use is up to the caller:
 // forget() sets that won't complete.
+// An incomplete set waits at most a week (SPEC.md, Fragments): a block
+// arriving later starts a new set, so blocks with colliding roots can't
+// mix over a long time
+export const SET_LIFETIME = 7 * 24 * 3600 * 1000;
+
 export class Reassembler {
 	constructor(hydra) {
 		this.hydra = hydra;
@@ -184,12 +189,14 @@ export class Reassembler {
 		this.done = new Set();
 	}
 
-	// Add one block (a Fragment's block). Returns null for an invalid
-	// block, { key, done: true } for a set decoded before, { key, have, K }
-	// while waiting, { key, payload } once decoded (the module then holds
-	// it, so a relay can call hydra.regenerate() next), or { key, failed:
-	// true } if K valid blocks didn't decode.
-	add(block) {
+	// Add one block (a Fragment's block) arriving at time (milliseconds).
+	// Returns null for an invalid block, { key, done: true } for a set
+	// decoded before, { key, have, K } while waiting, { key, payload } once
+	// decoded (the module then holds it, so a relay can call
+	// hydra.regenerate() next), or { key, failed: true } if K valid blocks
+	// didn't decode. A waiting set first seen more than SET_LIFETIME before
+	// is dropped, and the block starts a new one.
+	add(block, time = Date.now()) {
 		const head = blockHeader(block);
 		if (!head || !this.hydra.verifyBlock(block))
 			return null;
@@ -197,8 +204,10 @@ export class Reassembler {
 		if (this.done.has(key))
 			return { key, done: true };
 		let set = this.sets.get(key);
+		if (set && time - set.first > SET_LIFETIME)
+			set = null;
 		if (!set) {
-			set = { K: head.K, root: head.root.slice(), blocks: new Map() };
+			set = { K: head.K, root: head.root.slice(), blocks: new Map(), first: time };
 			this.sets.set(key, set);
 		}
 		if (!set.blocks.has(head.index))
@@ -213,14 +222,18 @@ export class Reassembler {
 		return { key, payload };
 	}
 
-	// Blocks still needed for each set waiting
-	missing() {
-		return [...this.sets].map(([key, set]) => ({ key, K: set.K, needed: set.K - set.blocks.size, root: set.root }));
+	// Blocks still needed for each set waiting at time; sets past their
+	// week are dropped
+	missing(time = Date.now()) {
+		for (const [key, set] of this.sets)
+			if (time - set.first > SET_LIFETIME)
+				this.sets.delete(key);
+		return [...this.sets].map(([key, set]) => ({ key, K: set.K, needed: set.K - set.blocks.size, root: set.root, first: set.first }));
 	}
 
-	// A Request-Root record for each set waiting
-	requests() {
-		return this.missing().map((m) => requestRoot(m.needed, m.root));
+	// A Request-Root record for each set waiting at time
+	requests(time = Date.now()) {
+		return this.missing(time).map((m) => requestRoot(m.needed, m.root));
 	}
 
 	forget(key) {

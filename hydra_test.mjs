@@ -203,6 +203,23 @@ const frame = R.payload([R.signed(new Uint8Array(32), new Uint8Array(64), post)]
 		[T.REQUEST_ROOT, encA.K - 4, 16, hex(blockHeader(blocksA[0]).root)].join());
 	R3.forget(m.key);
 	check('forgotten set is gone', R3.missing().length, 0);
+
+	// an incomplete set waits a week: later blocks start a new set
+	const R4 = new Reassembler(H);
+	const t0 = 1763380000000, day = 24 * 3600 * 1000;
+	for (let i = 0; i < encA.K - 1; ++i)
+		R4.add(blocksA[i], t0 + i);
+	check('a week minus a moment: still waiting', R4.missing(t0 + 7 * day).length, 1);
+	const late = R4.add(blocksA[encA.K - 1], t0 + 7 * day + 1);
+	check('the last block after a week: a new set', [late.payload === undefined, late.have].join(), 'true,1');
+	check('the new set counts from its own first block', R4.missing(t0 + 14 * day).length, 1);
+	check('and is dropped a week after that', R4.missing(t0 + 14 * day + 2).length, 0);
+	check('no Request-Root for a dropped set', R4.requests(t0 + 15 * day).length, 0);
+	const R5 = new Reassembler(H);
+	for (let i = 0; i < encA.K - 1; ++i)
+		R5.add(blocksA[i], t0);
+	const inTime = R5.add(blocksA[encA.K - 1], t0 + 7 * day);
+	check('the last block within the week decodes', hex(inTime.payload?.subarray(0, a.length) ?? []), hex(a));
 }
 
 // ------------------------------------------------------------- limits

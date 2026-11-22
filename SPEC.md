@@ -197,6 +197,7 @@ header (u32 LE): bit 31 hash flag (16/32 bytes), bit 30 reserved,
 - **Used for** payloads too big for one frame, or split into short transmissions to respect airtime limits. Smaller posts go as plain records.
 - **Sharing frames.** A fragment is only as long as it needs to be (`block_length`); the rest of the frame can carry other records.
 - **The reassembled payload** is an ordinary record stream of at most 2²³ bytes; its zero padding parses as the end. It never holds Fragments itself: a Fragment in it is malformed.
+- **A week at most.** A set that hasn't decoded waits at most 7 days from the arrival of its first block; a block arriving later starts a new set, and a station stops asking for the old one. Roots are short-lived names: senders use 16-byte roots, and this keeps blocks with colliding roots from mixing over a long time. A set that decoded is untouched: its post or Avatar is protected by its own signature and 32-byte post ID, never by the root, and its frames stay as long as their tier keeps them.
 - **Limits:** N = 2^height with height 1–16, so N ≤ 65536; K ≤ 1024, K ≤ N, index < N, and a block is at most 8192 bytes. Senders should use N ≥ 16 × next power of two of K, so independent relays rarely send the same block.
 - **Checks before HYDRA:** a block with header bit 30 set, breaking the limits, or shorter than its header, proof, root and 4 bytes of payload, is malformed.
 - **HYDRA's check:** a block that fails `verify_block` (a wrong proof, non-zero padding) is malformed too, and drops the frame.

@@ -162,16 +162,17 @@ export async function openStation({ store, crypto = null, hydra = null }) {
 		}
 	};
 
-	// hand the frame's verified Fragments to the reassembler; returns what
-	// became of each set and the payloads decoded from them, parsed
-	const reassemble = (nodes) => {
+	// hand the frame's verified Fragments to the reassembler, as they
+	// arrived; returns what became of each set and the payloads decoded
+	// from them, parsed
+	const reassemble = (nodes, arrival) => {
 		const out = [];
 		if (!reassembler)
 			return out;
 		for (const [node] of walk(nodes)) {
 			if (node.type !== T.FRAGMENT || node.verified !== true)
 				continue;
-			const r = reassembler.add(node.block);
+			const r = reassembler.add(node.block, arrival);
 			if (!r)
 				continue;
 			if (r.payload) {
@@ -288,7 +289,7 @@ export async function openStation({ store, crypto = null, hydra = null }) {
 			size: bytes.length,
 			...a,
 			facts: a.nodes ? facts(a.nodes, bytes) : null,
-			fragments: a.nodes ? reassemble(a.nodes) : [],
+			fragments: a.nodes ? reassemble(a.nodes, meta.arrival) : [],
 		};
 	};
 

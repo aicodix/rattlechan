@@ -88,6 +88,16 @@ check('reassembled: verified', done.nodes[0].verified, true);
 check('reassembled: the post', R.decodeText(done.nodes[0].children[0].subject), 'A long one');
 check('nothing waiting', S.waiting().length, 0);
 
+// a set that waited more than a week starts over
+{
+	const S7 = await openStation({ store: await openStore(memoryBackend()), crypto: C, hydra: H });
+	const t = 1763380000000, week = 7 * 24 * 3600 * 1000;
+	for (let i = 0; i < enc.K - 1; ++i)
+		await S7.receive(R.payload([blocks[i]]), { arrival: t + i });
+	const late = await S7.receive(R.payload([blocks[enc.K - 1]]), { arrival: t + week + 1 });
+	check('after a week: a new set, not reassembled', [late.fragments[0].have, !!late.fragments[0].nodes].join(), '1,false');
+}
+
 // a corrupted block fails verify_block and drops its frame
 const bad = R.payload([blocks[enc.K]]);
 bad[bad.length - 1] ^= 1;
