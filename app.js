@@ -546,15 +546,15 @@ function printRevocations(k) {
 	}, []).map((l) => l.join(' ')).join('\n');
 	d.body.style.cssText = 'font: 12pt/1.4 system-ui, sans-serif; color: #000; background: #fff; margin: 1.5cm;';
 	const notes = {
-		retired: 'This revokes the key below as retired: its owner no longer uses it, for instance after becoming a silent key. If the owner can\'t send it anymore, please send this code over Rattlechan: stations then mark later posts by this key as signed by a retired key.',
-		compromised: 'This revokes the key below as compromised: lost or stolen. Send this code over Rattlechan as soon as the key may be in someone else\'s hands: stations then stop trusting every post by this key.',
+		retired: 'This revokes the key with the fingerprint below as retired: its owner no longer uses it, for instance after becoming a silent key. If the owner can\'t send it anymore, please send this code over Rattlechan: stations then mark later posts by this key as signed by a retired key.',
+		compromised: 'This revokes the key with the fingerprint below as compromised: lost or stolen. Send this code over Rattlechan as soon as the key may be in someone else\'s hands: stations then stop trusting every post by this key.',
 	};
 	for (const reason of ['retired', 'compromised']) {
 		const page = el('section', null, 'page-break-after: always; break-after: page;');
 		page.append(
 			el('h1', `Rattlechan revocation: ${reason}`, 'font-size: 18pt;'),
 			el('p', notes[reason]),
-			el('p', `Key: ${k.label}${k.callSign ? `, ${k.callSign}` : ''}${k.name ? `, ${k.name}` : ''}`),
+			el('p', `Fingerprint of ${k.label}${k.callSign ? `, ${k.callSign}` : ''}${k.name ? `, ${k.name}` : ''}:`),
 			el('pre', groups(k.key, 8), 'font: 11pt ui-monospace, monospace;'),
 			el('p', 'Revocation, 99 bytes, to send as it is:'),
 			el('pre', groups(k.revocations[reason], 8), 'display: inline-block; font: 13pt ui-monospace, monospace; border: 1px solid #000; padding: 8pt;'),
@@ -695,10 +695,10 @@ function setKind(k) {
 for (const b of document.querySelectorAll('.segmented [role=radio]'))
 	b.onclick = () => setKind(b.dataset.kind);
 
-// where a Topic goes: everyone, or a call sign, key, name or board
+// where a Topic goes: everyone, or a call sign, fingerprint, name or board
 const TO = {
-	call: ['Call sign', 'Anyone may answer; their key becomes known when they do. Call signs get reassigned, so prefer a key once you know it.'],
-	key: ['Key', 'The only reliable direct conversation: by default only that key\'s replies show. Pick a key from your log, or paste its 64 hex characters.'],
+	call: ['Call sign', 'Anyone may answer; their fingerprint becomes known when they do. Call signs get reassigned, so prefer a fingerprint once you know it.'],
+	key: ['Fingerprint', 'The only reliable direct conversation: by default only replies signed with that fingerprint show. Pick a fingerprint from your log, or paste its 64 hex characters.'],
 	name: ['Name', 'Names aren\'t unique, so the recipient sees it as "maybe for you".'],
 	group: ['Board', 'A group name works like a channel: anyone can post to it.'],
 };
@@ -753,7 +753,7 @@ function address() {
 	}
 	if (to === 'key') {
 		const h = v.toLowerCase().replace(/\s+/g, '');
-		return /^[0-9a-f]{64}$/.test(h) ? { to: { key: fromHex(h) } } : { why: 'A key is 64 hex characters.' };
+		return /^[0-9a-f]{64}$/.test(h) ? { to: { key: fromHex(h) } } : { why: 'A fingerprint is 64 hex characters.' };
 	}
 	return { to: to === 'name' ? { name: v } : { group: v } };
 }

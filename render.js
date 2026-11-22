@@ -88,7 +88,7 @@ function recipient(keyBytes, what) {
 		if (info.name)
 			chip.append(info.callSign ? ' ' : '', nameOf(info.name));
 	} else {
-		chip.append('key ', el('span.key', short(keyBytes)));
+		chip.append('fingerprint ', el('span.key', short(keyBytes)));
 	}
 	chip.title = key.match(/.{4}/g).join(' ');
 	return chip;
@@ -119,7 +119,7 @@ export function identicon(key, size = 32) {
 	svg.setAttribute('height', size);
 	svg.setAttribute('class', `identicon id-${colour}`);
 	svg.setAttribute('role', 'img');
-	svg.setAttribute('aria-label', `identicon of key ${short(key)}`);
+	svg.setAttribute('aria-label', `identicon of fingerprint ${short(key)}`);
 	for (const [x, y] of cells) {
 		const r = document.createElementNS(SVG, 'rect');
 		r.setAttribute('x', x);
@@ -157,8 +157,8 @@ function nameOf(name) {
 	return e;
 }
 
-// who signed: face, then call sign and name once trusted, the short key
-// otherwise, and the button to trust or stop trusting
+// who signed: face, then call sign and name once trusted, the short
+// fingerprint otherwise, and the button to trust or stop trusting
 function signer(n) {
 	const key = hex(n.key);
 	const info = station.keyInfo(key);
@@ -170,7 +170,7 @@ function signer(n) {
 			who.append(info.callSign ? ' ' : '', nameOf(info.name));
 		who.append(' ', el('span.key', short(n.key)));
 	} else {
-		who.append('key ', el('span.key', short(n.key)));
+		who.append('fingerprint ', el('span.key', short(n.key)));
 	}
 	if (info.own)
 		return [face(key), who, el('span.ok', 'your key')];
@@ -333,7 +333,7 @@ function picture(n, label, key) {
 	};
 	if (trusted(key))
 		queueMicrotask(() => b.onclick());
-	return el('div.part', b, label === 'avatar' && key ? el('span.dim', ` for key ${key.slice(0, 8)}`) : '');
+	return el('div.part', b, label === 'avatar' && key ? el('span.dim', ` for fingerprint ${key.slice(0, 8)}`) : '');
 }
 
 function leaf(n, key = null) {
@@ -407,7 +407,7 @@ const DROPPED = {
 function signed(n) {
 	if (n.verified !== true) {
 		const state = n.verified === false ? el('span.bad', '✗ signed') : el('span.dim', '? signed (unchecked)');
-		return el('div.box', el('div.box-head', state, ' by key ', el('span.key', short(n.key))), n.dropped ? null : nodes(n.children));
+		return el('div.box', el('div.box-head', state, ' by fingerprint ', el('span.key', short(n.key))), n.dropped ? null : nodes(n.children));
 	}
 	return el('div.box', el('div.box-head.signer', el('span.ok', '✓'), ...signer(n)), n.dropped ? null : nodes(n.children, hex(n.key)));
 }
