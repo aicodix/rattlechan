@@ -10,7 +10,8 @@ import { openStation } from './station.js';
 import { listen, inputs, decodeRecording } from './receiver.js';
 import { compose, composeAvatar, split, chain, pick, secondsFor, airtime, needs, SECONDS_DEFAULT, SNR_DEFAULT, REDUNDANCY_DEFAULT } from './sender.js';
 import { output, encoderFor, play } from './transmitter.js';
-import { encodeCall, decodeText } from './records.js';
+import { encodeCall, decodeText, fromCall, fromName } from './records.js';
+import { smallestText } from './encodings.js';
 import { openKeys } from './keys.js';
 import * as view from './render.js';
 
@@ -916,9 +917,17 @@ async function draft() {
 	if (!k)
 		return { why: keys ? $('no-keys').textContent : 'CRYPTO failed to load, so nothing can be signed.' };
 	// the choice to include call sign and name, for keys that have them
-	$('introduce-field').hidden = !k.callSign && !k.name;
-	$('introduce-who').textContent = [k.callSign, k.name].filter(Boolean).join(' · ');
-	const introduce = !$('introduce-field').hidden && $('introduce').checked;
+	// the key's call sign and name, each on its own with what it costs
+	const offer = (what, value, bytes) => {
+		$(`include-${what}-field`).hidden = !value;
+		if (value) {
+			$(`include-${what}-what`).textContent = value;
+			$(`include-${what}-size`).textContent = view.bytes(bytes(value));
+		}
+		return !!value && $(`include-${what}`).checked;
+	};
+	const withCall = offer('call', k.callSign, (c) => fromCall(c).length);
+	const withName = offer('name', k.name, (n) => fromName(smallestText(n)).length);
 	// and to include its avatar, for keys that have one
 	$('include-avatar-field').hidden = !k.avatar;
 	if (k.avatar)
@@ -938,7 +947,7 @@ async function draft() {
 		kind, subject: $('subject').value.trim(), text, parent: replyTo,
 		// the key's call sign and name only when asked for: they cost bytes,
 		// and stations remember them from earlier posts
-		callSign: introduce ? k.callSign : null, name: introduce ? k.name : null, to: where.to,
+		callSign: withCall ? k.callSign : null, name: withName ? k.name : null, to: where.to,
 		sign: await keys.signer(k.key),
 		avatar: withAvatar ? k.avatar : null,
 	});
@@ -1037,7 +1046,8 @@ const typed = () => {
 		$('send-status').textContent = '';
 	estimate();
 };
-$('introduce').onchange = estimate;
+$('include-call').onchange = estimate;
+$('include-name').onchange = estimate;
 $('include-avatar').onchange = estimate;
 $('subject').oninput = typed;
 $('text').oninput = typed;
@@ -1103,7 +1113,8 @@ $('send-button').onclick = async () => {
 			$('text').value = '';
 			$('subject').value = '';
 			$('hex').value = '';
-			$('introduce').checked = false;
+			$('include-call').checked = false;
+			$('include-name').checked = false;
 			$('include-avatar').checked = false;
 			$('to-kind').value = '';
 			$('to-value').value = '';
