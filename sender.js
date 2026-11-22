@@ -41,6 +41,20 @@ export function compose({ kind, subject = '', text = '', parent = null, callSign
 	return R.payload(sign ? [sign(...records)] : records);
 }
 
+// An Avatar for the signing key, with From-Call and From-Name when given,
+// as a bare record inside one Signed record (SPEC.md: sent now and then,
+// not with every post)
+export function composeAvatar({ avatar, callSign = null, name = null, sign }) {
+	if (!sign)
+		throw new RangeError('an avatar needs a key to belong to');
+	const from = [];
+	if (callSign)
+		from.push(R.fromCall(callSign));
+	if (name)
+		from.push(R.fromName(smallestText(name)));
+	return R.payload([sign(...from, R.avatar(avatar))]);
+}
+
 function address(to) {
 	if (!to)
 		return [];

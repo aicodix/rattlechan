@@ -8,7 +8,7 @@ import { loadCrypto } from './crypto.js';
 import { loadHydra } from './hydra.js';
 import { openStation } from './station.js';
 import { listen, inputs, decodeRecording } from './receiver.js';
-import { compose, split, chain, pick, secondsFor, airtime, needs, SECONDS_DEFAULT, SNR_DEFAULT, REDUNDANCY_DEFAULT } from './sender.js';
+import { compose, composeAvatar, split, chain, pick, secondsFor, airtime, needs, SECONDS_DEFAULT, SNR_DEFAULT, REDUNDANCY_DEFAULT } from './sender.js';
 import { output, encoderFor, play } from './transmitter.js';
 import { encodeCall, decodeText } from './records.js';
 import { openKeys } from './keys.js';
@@ -673,18 +673,79 @@ function keyCard(k) {
 		view.el('div.row', word, revokeNow, revokeStop),
 		revokeStatus);
 	revokeArea.hidden = true;
+	// its avatar: a WebP file as it is, sent now and then from here
+	const avatarInfo = view.el('p.dim');
+	const file = view.el('input');
+	file.type = 'file';
+	file.accept = 'image/webp,.webp';
+	file.hidden = true;
+	file.onchange = async () => {
+		const f = file.files[0];
+		if (!f)
+			return;
+		try {
+			await keys.update(k.key, { avatar: new Uint8Array(await f.arrayBuffer()) });
+			fillKeys();
+		} catch (err) {
+			avatarInfo.textContent = /WebP/.test(err.message) ? `${f.name} isn't a WebP file.` : err.message;
+		}
+	};
+	const choose = view.el('button.small', k.avatar ? 'Change avatar…' : 'Choose avatar…');
+	choose.onclick = () => file.click();
+	const dropAvatar = view.el('button.small', 'Remove avatar');
+	dropAvatar.hidden = !k.avatar;
+	dropAvatar.onclick = async () => {
+		await keys.update(k.key, { avatar: null });
+		fillKeys();
+	};
+	const sendAvatar = view.el('button.small', 'Send avatar');
+	sendAvatar.hidden = !k.avatar || revoked.retired !== null || revoked.compromised !== null;
+	const avatarStop = view.el('button.small', 'Stop');
+	avatarStop.hidden = true;
+	sendAvatar.onclick = async () => {
+		sendAvatar.disabled = true;
+		const say = (t) => {
+			avatarInfo.textContent = t;
+		};
+		try {
+			await transmit(await avatarDraft(k), 'fragments', say, avatarStop);
+		} catch (err) {
+			say(`Can't send: ${err.message}`);
+		}
+		sendAvatar.disabled = false;
+	};
+	if (k.avatar && !sendAvatar.hidden)
+		avatarDraft(k).then(async (d) => {
+			const p = plan(await encoderFor(48000), d, 'fragments');
+			avatarInfo.textContent = `${view.bytes(k.avatar.length)} WebP, on the air as ${p.frames.length === 1 ? 'one frame' : `${p.frames.length} fragments, any ${p.K} of them enough`}, ${p.airtime.toFixed(1)} s. Stations that trust this key show it beside its posts.`;
+		}).catch((err) => {
+			avatarInfo.textContent = err.message;
+		});
+	else if (!k.avatar)
+		avatarInfo.textContent = 'No avatar: stations show the identicon. A small WebP picture or animation, a few KiB, keeps the airtime short.';
 	const revoke = view.el('button.small', 'Revoke…');
 	revoke.hidden = reason.options.length === 0;
 	revoke.onclick = () => {
 		revokeArea.hidden = !revokeArea.hidden;
 	};
-	return view.el('article.key-card',
-		view.el('div.key-card-head', view.identicon(fromHex(k.key)), view.el('strong', k.label), view.el('span.key', k.key.slice(0, 8))),
+	const icon = view.identicon(fromHex(k.key));
+	const card = view.el('article.key-card',
+		view.el('div.key-card-head', k.avatar ? view.withAvatar(icon, k.avatar) : icon, view.el('strong', k.label), view.el('span.key', k.key.slice(0, 8))),
 		state,
 		labelField, callFieldEl, nameField,
+		view.el('div.row', choose, dropAvatar, sendAvatar, avatarStop, file),
+		avatarInfo,
 		view.el('div.row', print, revoke, remove),
 		revokeArea,
 		removeArea);
+	view.touchToPlay(card);
+	return card;
+}
+
+// an Avatar post of an own key, signed, with its From-Call and From-Name
+async function avatarDraft(k) {
+	const payload = composeAvatar({ avatar: k.avatar, callSign: k.callSign, name: k.name, sign: await keys.signer(k.key) });
+	return { payload, o: await own() };
 }
 
 // the key list in Station and the choice in Send

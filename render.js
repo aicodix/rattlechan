@@ -142,9 +142,15 @@ function face(key, size = 32) {
 	const icon = identicon(fromHex(key), size);
 	if (!info.trusted || !info.avatar)
 		return icon;
+	return withAvatar(icon, info.avatar);
+}
+
+// an avatar (WebP bytes) in place of icon once it loads, an animated one
+// still until hovered or touched; icon stays if it can't be drawn
+export function withAvatar(icon, avatar) {
 	const wrap = el('span.face', icon);
-	const blob = new Blob([info.avatar], { type: 'image/webp' });
-	(animatedWebP(info.avatar) ? animated(blob, 'avatar', 'avatar') : Promise.resolve(Object.assign(el('img.avatar'), { src: URL.createObjectURL(blob), alt: 'avatar' })))
+	const blob = new Blob([avatar], { type: 'image/webp' });
+	(animatedWebP(avatar) ? animated(blob, 'avatar', 'avatar') : Promise.resolve(Object.assign(el('img.avatar'), { src: URL.createObjectURL(blob), alt: 'avatar' })))
 		.then((pic) => icon.replaceWith(pic))
 		.catch(() => {});
 	return wrap;
@@ -321,7 +327,7 @@ async function animated(blob, label, cls = 'picture') {
 
 // a touch anywhere on an entry plays its animated pictures until the
 // finger lifts, so the finger doesn't cover them
-function touchToPlay(box) {
+export function touchToPlay(box) {
 	const all = (what) => {
 		for (const a of box.querySelectorAll('.animated'))
 			players.get(a)?.[what]();

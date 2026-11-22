@@ -10,7 +10,14 @@ const fromHex = (h) => Uint8Array.from(h.match(/../g), (b) => parseInt(b, 16));
 
 const CALL = /^[A-Z0-9/-]{1,9}$/;
 
-function checkFields({ label, callSign, name }) {
+// a WebP file: a RIFF container of type WEBP whose size matches
+export const isWebP = (b) => b instanceof Uint8Array && b.length >= 20
+	&& String.fromCharCode(...b.subarray(0, 4)) === 'RIFF' && String.fromCharCode(...b.subarray(8, 12)) === 'WEBP'
+	&& (b[4] | b[5] << 8 | b[6] << 16 | b[7] << 24) >>> 0 === b.length - 8;
+
+function checkFields({ label, callSign, name, avatar }) {
+	if (avatar !== undefined && avatar !== null && !isWebP(avatar))
+		throw new RangeError('an avatar is a WebP file');
 	if (label !== undefined && (typeof label !== 'string' || !label.trim()))
 		throw new RangeError('a key needs a label');
 	if (callSign !== undefined && callSign !== null && callSign !== '' && !CALL.test(callSign))
@@ -21,12 +28,13 @@ function checkFields({ label, callSign, name }) {
 
 // The key ring of a store, with crypto from loadCrypto(). Keys are plain
 // objects: { key (fingerprint hex), label, callSign, name, created,
-// revocations: { retired, compromised } (hex) }; the private key stays
+// revocations: { retired, compromised } (hex), avatar (WebP bytes or
+// null) }; the avatar is kept as hex; the private key stays
 // inside, reachable only through signer().
 export async function openKeys(store, crypto) {
 	const load = async () => (await store.getSecret('keys'))?.keys ?? [];
 	const save = (keys) => store.putSecret('keys', { keys });
-	const visible = (k) => ({ key: k.key, label: k.label, callSign: k.callSign, name: k.name, created: k.created, revocations: { ...k.revocations } });
+	const visible = (k) => ({ key: k.key, label: k.label, callSign: k.callSign, name: k.name, created: k.created, revocations: { ...k.revocations }, avatar: k.avatar ? fromHex(k.avatar) : null });
 
 	const add = async (priv, { label, callSign = null, name = null, created = Date.now() }) => {
 		checkFields({ label, callSign, name });
@@ -60,7 +68,7 @@ export async function openKeys(store, crypto) {
 			return add(fromHex(h), fields);
 		},
 
-		// change label, call sign or name
+		// change label, call sign, name or avatar (null removes it)
 		update: async (key, fields) => {
 			checkFields(fields);
 			const keys = await load();
@@ -73,6 +81,8 @@ export async function openKeys(store, crypto) {
 				k.callSign = fields.callSign || null;
 			if (fields.name !== undefined)
 				k.name = fields.name || null;
+			if (fields.avatar !== undefined)
+				k.avatar = fields.avatar ? hex(fields.avatar) : null;
 			await save(keys);
 			return visible(k);
 		},

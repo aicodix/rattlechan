@@ -3,7 +3,7 @@
 // ROBUSTO decoder and reassembled with HYDRA.
 
 import { readFile } from 'node:fs/promises';
-import { compose, frameCapacity, split, chain, pick, secondsFor, airtime, needs, THRESHOLDS, SECONDS_DEFAULT, SNR_DEFAULT } from './sender.js';
+import { compose, composeAvatar, frameCapacity, split, chain, pick, secondsFor, airtime, needs, THRESHOLDS, SECONDS_DEFAULT, SNR_DEFAULT } from './sender.js';
 import { loadEncoder, loadDecoder } from './robusto.js';
 import { loadHydra, Reassembler } from './hydra.js';
 import { loadCrypto } from './crypto.js';
@@ -71,6 +71,22 @@ check('message: From-Call', p[0].prefixes[0].handle, 'DL1ABC');
 		check(`signed ${kind}: From inside`, inner.prefixes.length, 2);
 		check(`signed ${kind}: ID`, kind === 'message' || inner.id !== null, true);
 	}
+	// an Avatar, with and without From
+	const webp = new Uint8Array(await file('examples/avatar.webp'));
+	const a = R.parse(composeAvatar({ avatar: webp, callSign: 'DL1ABC', name: 'Anna', sign }), { verify: C.verify });
+	check('avatar: one Signed record', a.length === 1 && a[0].type, R.T.SIGNED);
+	check('avatar: verifies', a[0].verified, true);
+	check('avatar: From-Call, From-Name, Avatar', a[0].children.map((n) => n.prefixes?.length ? `${n.prefixes.map((p) => p.name).join('+')}+${n.name}` : n.name).join(), 'FROM_CALL+FROM_NAME+AVATAR');
+	check('avatar: the file', a[0].children.at(-1).body.length, webp.length);
+	const bare = R.parse(composeAvatar({ avatar: webp, sign }), { verify: C.verify });
+	check('avatar: without From', bare[0].children.length === 1 && bare[0].children[0].type, R.T.AVATAR);
+	let threw = false;
+	try {
+		composeAvatar({ avatar: webp });
+	} catch {
+		threw = true;
+	}
+	check('avatar: needs a key', threw, true);
 }
 
 // addressed Topics: From before To, as the ordering rule asks
