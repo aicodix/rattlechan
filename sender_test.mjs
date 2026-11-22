@@ -3,7 +3,7 @@
 // ROBUSTO decoder and reassembled with HYDRA.
 
 import { readFile } from 'node:fs/promises';
-import { compose, composeAvatar, testNoise, frameCapacity, split, chain, pick, secondsFor, airtime, needs, THRESHOLDS, SECONDS_DEFAULT, SNR_DEFAULT } from './sender.js';
+import { compose, composeAvatar, frameCapacity, split, chain, pick, secondsFor, airtime, needs, THRESHOLDS, SECONDS_DEFAULT, SNR_DEFAULT } from './sender.js';
 import { loadEncoder, loadDecoder } from './robusto.js';
 import { loadHydra, Reassembler } from './hydra.js';
 import { loadCrypto } from './crypto.js';
@@ -130,21 +130,6 @@ throws('unknown kind', () => compose({ kind: 'poll', text: 'x' }));
 for (const rate of [48000, 44100]) {
 	const E = await loadEncoder(rate, await file(`robusto_encoder_${rate}.wasm`));
 	const D = await loadDecoder(rate, await file(`robusto_decoder_${rate}.wasm`));
-	// the test signal: the leading noise, about two seconds, no clicks
-	{
-		const t = testNoise(E);
-		const guard = rate / 300;
-		const rms = (x) => Math.sqrt(x.reduce((n, v) => n + v * v, 0) / x.length);
-		const jump = (x) => x.reduce((m, v, i) => i ? Math.max(m, Math.abs(v - x[i - 1])) : m, 0);
-		const ping = E.ping(0);
-		check(`${rate}: test noise about two seconds`, t.length >= 2 * rate && t.length < 2.2 * rate, true);
-		check(`${rate}: test noise starts and ends at zero`, t[0] === 0 && Math.abs(t[t.length - 1]) < 0.02, true);
-		check(`${rate}: test noise at the signal's level`, Math.abs(rms(t.subarray(guard, -guard)) / rms(ping.subarray(rate / 300 * 41)) - 1) < 0.1, true);
-		check(`${rate}: test noise without clicks`, jump(t) <= 1.2 * jump(ping.subarray(guard, rate / 300 * 41)), true);
-		const D0 = await loadDecoder(rate, await file(`robusto_decoder_${rate}.wasm`));
-		const ev = [...D0.feed(t), ...D0.flush()];
-		check(`${rate}: test noise decodes to nothing`, ev.filter((e) => e.type !== 'sync').length, 0);
-	}
 	const cap = frameCapacity(E);
 	check(`${rate}: capacity fits`, pick(E, cap) !== null, true);
 	check(`${rate}: one byte more doesn't`, pick(E, cap + 1), null);

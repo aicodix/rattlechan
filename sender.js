@@ -177,12 +177,6 @@ export function chain(encoder, frames, { seconds = SECONDS_DEFAULT, snr = SNR_DE
 	return { audio, modes, seconds: audio.length / encoder.rate };
 }
 
-// About seconds of the modem's leading noise, at the level of its signal,
-// for setting a radio's input: no call sign, nothing to decode. The modem
-// continues the noise sequence, so its symbols differ, and fades it in
-// and out like a frame.
-export const testNoise = (encoder, seconds = 2) => encoder.noise(Math.max(1, Math.round(seconds / encoder.NOISE_SYMBOL)));
-
 // How long frames of these lengths take on the air when chained
 export function airtime(encoder, lengths, opts = {}) {
 	const each = lengths.map((n) => encoder.modeInfo(pick(encoder, n, opts)).seconds);

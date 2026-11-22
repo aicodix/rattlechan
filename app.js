@@ -8,7 +8,7 @@ import { loadCrypto } from './crypto.js';
 import { loadHydra } from './hydra.js';
 import { openStation } from './station.js';
 import { listen, inputs, decodeRecording } from './receiver.js';
-import { compose, composeAvatar, testNoise, split, chain, pick, secondsFor, airtime, needs, SECONDS_DEFAULT, SNR_DEFAULT, REDUNDANCY_DEFAULT } from './sender.js';
+import { compose, composeAvatar, split, chain, pick, secondsFor, airtime, needs, SECONDS_DEFAULT, SNR_DEFAULT, REDUNDANCY_DEFAULT } from './sender.js';
 import { output, encoderFor, play, LEVEL_DEFAULT, LEVEL_MIN } from './transmitter.js';
 import { encodeCall, decodeText, fromCall, fromName, textUTF8, T } from './records.js';
 import { smallestText } from './encodings.js';
@@ -1380,11 +1380,10 @@ $('test-output').onclick = async () => {
 	$('test-output').disabled = true;
 	try {
 		const ctx = await output();
-		const audio = testNoise(await encoderFor(ctx.sampleRate));
+		// exactly the leading noise before a transmission, at the output level
+		const audio = (await encoderFor(ctx.sampleRate)).noise(leadSymbols());
 		deafUntil = Infinity;
 		sending = play(ctx, audio, outputLevel());
-		$('test-stop').onclick = () => sending?.stop();
-		$('test-stop').hidden = false;
 		status('sending', 'ok');
 		await sending.done;
 	} catch (err) {
@@ -1392,7 +1391,6 @@ $('test-output').onclick = async () => {
 	} finally {
 		sending = null;
 		deafUntil = Date.now() + 1500;
-		$('test-stop').hidden = true;
 		$('test-output').disabled = false;
 		if ($('status').textContent === 'sending')
 			status(receiver ? 'listening' : 'not listening');
