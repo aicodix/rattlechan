@@ -8,9 +8,9 @@ import { loadCrypto } from './crypto.js';
 import { loadHydra } from './hydra.js';
 import { openStation } from './station.js';
 import { listen, inputs, decodeRecording } from './receiver.js';
-import { compose, composeAvatar, bundled, attachment, isCodec2File, fileName, FILES_MAX, FILES_MAX_BYTES, fill, pack, split, chain, pick, secondsFor, airtime, needs, SECONDS_DEFAULT, SNR_DEFAULT, REDUNDANCY_DEFAULT } from './sender.js';
+import { sizes, compose, composeAvatar, bundled, attachment, isCodec2File, fileName, FILES_MAX, FILES_MAX_BYTES, fill, pack, split, chain, pick, secondsFor, airtime, needs, SECONDS_DEFAULT, SNR_DEFAULT, REDUNDANCY_DEFAULT } from './sender.js';
 import { output, encoderFor, play, LEVEL_DEFAULT, LEVEL_MIN } from './transmitter.js';
-import { encodeCall, decodeText, fromCall, fromName, textUTF8, webpSize, payload as framePayload, T } from './records.js';
+import { encodeCall, decodeText, fromCall, fromName, textUTF8, webpSize, signed as signedRecord, payload as framePayload, T } from './records.js';
 import { smallestText } from './encodings.js';
 import { openKeys } from './keys.js';
 import { conversations, boards } from './tree.js';
@@ -919,8 +919,8 @@ function keyCard(k) {
 	};
 	if (k.avatar && !sendAvatar.hidden)
 		avatarDraft(k).then(async (d) => {
-			const p = plan(await encoderFor(48000), d, 'fragments');
-			avatarInfo.textContent = `${view.bytes(k.avatar.length)} WebP, on the air as ${p.frames.length === 1 ? 'one frame' : `${p.frames.length} fragments, any ${p.K} of them enough`}, ${p.airtime.toFixed(1)} s. Stations that trust this key show it beside its posts.`;
+			const p = plan(await encoderFor(48000), d, 'fragments', true);
+			avatarInfo.textContent = `${view.bytes(k.avatar.length)} WebP, on the air as ${p.count === 1 ? 'one frame' : `${p.count} fragments, any ${p.K} of them enough`}, ${p.airtime.toFixed(1)} s. Stations that trust this key show it beside its posts.`;
 		}).catch((err) => {
 			avatarInfo.textContent = err.message;
 		});
@@ -1149,8 +1149,12 @@ function address() {
 	return { to: to === 'name' ? { name: v } : { group: v } };
 }
 
-// the post as it stands, signed, or { why }
-async function draft() {
+// A signature's place without signing, for estimates: the same size
+const unsigned = (...records) => signedRecord(new Uint8Array(32), new Uint8Array(64), ...records);
+
+// the post as it stands, signed, or { why }; with dry, only as large as
+// signed, for estimates
+async function draft(dry = false) {
 	const o = await own();
 	if (kind === 'hex') {
 		const h = $('hex').value.replace(/\s+/g, '').toLowerCase();
@@ -1202,7 +1206,7 @@ async function draft() {
 		// the key's call sign and name only when asked for: they cost bytes,
 		// and stations remember them from earlier posts
 		callSign: withCall ? k.callSign : null, name: withName ? k.name : null,
-		sign: await keys.signer(k.key),
+		sign: dry ? unsigned : await keys.signer(k.key),
 		avatar: withAvatar ? k.avatar : null,
 	});
 	return { payload, o, post, key: k.key };
@@ -1213,13 +1217,14 @@ let estimating = 0;
 async function estimate() {
 	if (stepping)
 		return;
+	// a second after the last change, so typing never waits for it
 	const mine = ++estimating;
-	await new Promise((r) => setTimeout(r, 250));
+	await new Promise((r) => setTimeout(r, 1000));
 	if (mine !== estimating)
 		return;
 	let d;
 	try {
-		d = await draft();
+		d = await draft(true);
 	} catch (err) {
 		d = { why: err.message };
 	}
@@ -1242,7 +1247,7 @@ async function estimate() {
 		$('hex-preview').replaceChildren(a.error ? view.el('div.bad', `malformed: ${a.error}; stations drop it`) : a.nodes.length ? view.nodes(a.nodes) : view.el('div.dim', 'empty frame'));
 		$('send-choice').hidden = true;
 		try {
-			const p = plan(E, d, 'longer');
+			const p = plan(E, d, 'longer', true);
 			$('send-info').textContent = `${view.bytes(d.payload.length)} in one frame of ${p.airtime.toFixed(1)} s, ${describe(p)}.${anon}`;
 		} catch (err) {
 			$('send-info').textContent = err.message;
@@ -1274,7 +1279,7 @@ function showPlan(E, d, ui) {
 	$(ui.choice).hidden = fits;
 	$(ui.button).disabled = !!sending;
 	if (fits) {
-		const p = plan(E, d, 'fragments');
+		const p = plan(E, d, 'fragments', true);
 		$(ui.info).textContent = `${view.bytes(d.payload.length)} in one frame of ${p.airtime.toFixed(1)} s, ${describe(p)}.${anon}`;
 		return;
 	}
@@ -1282,7 +1287,7 @@ function showPlan(E, d, ui) {
 	const choice = (how, span, label) => {
 		const radio = document.querySelector(`input[name=${ui.how}][value=${how}]`);
 		try {
-			const p = plan(E, d, how);
+			const p = plan(E, d, how, true);
 			radio.disabled = false;
 			$(span).textContent = label(p);
 		} catch (err) {
@@ -1290,7 +1295,7 @@ function showPlan(E, d, ui) {
 			$(span).textContent = err.message;
 		}
 	};
-	choice('fragments', ui.fragments, (p) => `${p.frames.length} fragments of ${E.modeInfo(p.modes[0]).seconds.toFixed(1)} s, any ${p.K} of them enough, ${p.airtime.toFixed(1)} s in all, ${describe(p)}`);
+	choice('fragments', ui.fragments, (p) => `${p.count} fragments of ${E.modeInfo(p.modes[0]).seconds.toFixed(1)} s, any ${p.K} of them enough, ${p.airtime.toFixed(1)} s in all, ${describe(p)}`);
 	choice('longer', ui.longer, (p) => `one frame of ${p.airtime.toFixed(1)} s, ${describe(p)}`);
 	const radios = [...document.querySelectorAll(`input[name=${ui.how}]`)];
 	if (radios.find((r) => r.checked)?.disabled)
@@ -1301,9 +1306,10 @@ function showPlan(E, d, ui) {
 }
 
 // How a draft goes on the air, at the settings or, with how = 'longer', in
-// one frame as long as it needs. Returns what split() gives, with the
-// seconds and SNR used, the modes and the airtime.
-function plan(E, d, how) {
+// one frame as long as it needs. Returns what split() gives (with dry,
+// what sizes() gives), with the number of frames, the seconds and SNR
+// used, the modes and the airtime.
+function plan(E, d, how, dry = false) {
 	const { snr, redundancy } = d.o;
 	let seconds = d.o.seconds;
 	if (how === 'longer' && pick(E, d.payload.length, { seconds, snr }) === null) {
@@ -1311,9 +1317,15 @@ function plan(E, d, how) {
 		if (seconds === null)
 			throw new RangeError(`too long for one frame at ${snr} dB`);
 	}
-	const s = split(d.payload, { encoder: E, hydra, seconds, snr, redundancy });
-	const lengths = s.frames.map((f) => f.length);
-	return { ...s, seconds, snr, modes: lengths.map((n) => pick(E, n, { seconds, snr })), airtime: airtime(E, lengths, { seconds, snr, lead: leadSymbols() }) };
+	// an estimate only sizes the frames: encoding a large payload takes
+	// seconds
+	const s = dry ? sizes(d.payload.length, { encoder: E, hydra, seconds, snr, redundancy }) : split(d.payload, { encoder: E, hydra, seconds, snr, redundancy });
+	const lengths = s.lengths ?? s.frames.map((f) => f.length);
+	const modeOf = new Map();
+	for (const n of lengths)
+		if (!modeOf.has(n))
+			modeOf.set(n, pick(E, n, { seconds, snr }));
+	return { ...s, count: lengths.length, seconds, snr, modes: lengths.map((n) => modeOf.get(n)), airtime: airtime(E, lengths, { seconds, snr, lead: leadSymbols() }) };
 }
 
 for (const r of document.querySelectorAll('input[name=how]'))
@@ -1414,6 +1426,9 @@ async function transmit(d, how, say, stop, step = null) {
 	const ctx = await output();
 	const E = await encoderFor(ctx.sampleRate);
 	const callSign = d.o.callSign || 'ANONYMOUS';
+	// splitting a large post takes seconds: say so before it starts
+	say('Preparing …');
+	await new Promise((r) => setTimeout(r, 50));
 	// frames packed by the caller, or the draft's own
 	const s = d.frames ? { frames: d.frames, K: d.frames.length, seconds: d.o.seconds, snr: d.o.snr } : plan(E, d, how);
 	const opts = { seconds: s.seconds, snr: s.snr, callSign, lead: leadSymbols() };
@@ -1741,8 +1756,9 @@ async function showOutbox() {
 	return outboxEstimate();
 }
 
-// all collected posts in one payload, a Signed record per key, or { why }
-async function outboxDraft() {
+// all collected posts in one payload, a Signed record per key, or { why };
+// with dry, only as large as signed, for estimates
+async function outboxDraft(dry = false) {
 	const o = await own();
 	const posts = await collected();
 	// the empty outbox says so itself
@@ -1771,7 +1787,7 @@ async function outboxDraft() {
 			callSign: w.call ? k.callSign : null,
 			name: w.name ? k.name : null,
 			avatar: w.avatar ? k.avatar : null,
-			sign: await keys.signer(key),
+			sign: dry ? unsigned : await keys.signer(key),
 		}));
 	}
 	return { payload: framePayload(records), o, posts };
@@ -1784,7 +1800,7 @@ async function outboxEstimate() {
 	const mine = ++outboxEstimating;
 	let d;
 	try {
-		d = await outboxDraft();
+		d = await outboxDraft(true);
 	} catch (err) {
 		d = { why: err.message };
 	}
@@ -1841,6 +1857,9 @@ await showRelay();
 $('one-at-a-time').checked = oneAtATime();
 $('outbox-one-at-a-time').checked = oneAtATime();
 setKind('topic');
+// the text encoders are built on first use, which takes a moment: build
+// them while nothing else happens, not on the first post's estimate
+setTimeout(() => smallestText('Rattlechan'), 3000);
 
 const startTab = recall('tab');
 showTab(['inbox', 'boards', 'log', 'send', 'outbox', 'station'].includes(startTab) ? startTab : 'inbox');

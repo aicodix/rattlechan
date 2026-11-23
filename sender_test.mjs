@@ -3,7 +3,7 @@
 // ROBUSTO decoder and reassembled with HYDRA.
 
 import { readFile } from 'node:fs/promises';
-import { compose, composeAvatar, bundled, attachment, fileName, mimeType, fill, pack, frameCapacity, split, chain, pick, secondsFor, airtime, needs, THRESHOLDS, SECONDS_DEFAULT, SNR_DEFAULT } from './sender.js';
+import { sizes, compose, composeAvatar, bundled, attachment, fileName, mimeType, fill, pack, frameCapacity, split, chain, pick, secondsFor, airtime, needs, THRESHOLDS, SECONDS_DEFAULT, SNR_DEFAULT } from './sender.js';
 import { loadEncoder, loadDecoder } from './robusto.js';
 import { loadHydra, Reassembler } from './hydra.js';
 import { loadCrypto } from './crypto.js';
@@ -247,6 +247,13 @@ for (const rate of [48000, 44100]) {
 	check(`${rate}: every frame at most ${SECONDS_DEFAULT} s`, c.modes.every((m) => E.modeInfo(m).seconds <= SECONDS_DEFAULT), true);
 	check(`${rate}: every frame decodes at ${SNR_DEFAULT} dB`, c.modes.every((m) => needs(m) <= SNR_DEFAULT), true);
 	check(`${rate}: airtime as chained`, Math.abs(airtime(E, s.frames.map((f) => f.length)) - c.seconds) < 1e-6, true);
+	check(`${rate}: sizes without encoding, a long post`, JSON.stringify(sizes(long.length, { encoder: E, hydra: H })), JSON.stringify({ lengths: s.frames.map((f) => f.length), K: s.K }));
+	check(`${rate}: sizes without encoding, a short post`, JSON.stringify(sizes(short.length, { encoder: E, hydra: H })), JSON.stringify({ lengths: [short.length], K: 1 }));
+	for (const n of [5000, 70000, 300000]) {
+		const big = new Uint8Array(n);
+		const real = split(big, { encoder: E, hydra: H, redundancy: 0.5 });
+		check(`${rate}: sizes of ${n} bytes as split makes them`, JSON.stringify(sizes(n, { encoder: E, hydra: H, redundancy: 0.5 })), JSON.stringify({ lengths: real.frames.map((f) => f.length), K: real.K }));
+	}
 	{
 		// a longer lead-in only before the first frame
 		const lead = chain(E, s.frames, { callSign: 'DL1ABC', lead: 5 });

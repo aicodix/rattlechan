@@ -273,6 +273,27 @@ export function split(payload, { encoder, hydra, seconds = SECONDS_DEFAULT, snr 
 	return { frames, K: enc.K };
 }
 
+// What split() would make of a payload of length bytes, without making it:
+// { lengths, K }, the length of each frame. Planning is quick, encoding a
+// large payload takes seconds, so estimates use this.
+export function sizes(length, { encoder, hydra, seconds = SECONDS_DEFAULT, snr = SNR_DEFAULT, redundancy = REDUNDANCY_DEFAULT }) {
+	const capacity = frameCapacity(encoder, { seconds, snr });
+	if (!capacity)
+		throw new RangeError(`no mode decodes at ${snr} dB`);
+	if (length <= capacity)
+		return { lengths: [length], K: 1 };
+	if (!hydra)
+		throw new RangeError(`${length} bytes need Fragments, and HYDRA isn't loaded`);
+	const budget = Math.min(R.FRAGMENT_MAX, capacity - 5);
+	const p = hydra.plan(length, budget);
+	if (!p)
+		throw new RangeError(`${length} bytes don't split into blocks of ${budget} bytes`);
+	const count = Math.min(p.N, Math.max(p.K + 1, Math.ceil(p.K * (1 + redundancy))));
+	// a Fragment record: its type, its length, the block
+	const frame = 1 + R.encodeLength(p.blen).length + p.blen;
+	return { lengths: new Array(count).fill(frame), K: p.K };
+}
+
 // The audio of frames chained back to back, each in the most robust mode
 // that fits seconds and decodes at snr dB, every one but the first without
 // its leading noise symbol; the first has lead symbols of it, for a VOX
@@ -301,6 +322,13 @@ export function chain(encoder, frames, { seconds = SECONDS_DEFAULT, snr = SNR_DE
 
 // How long frames of these lengths take on the air when chained
 export function airtime(encoder, lengths, opts = {}) {
-	const each = lengths.map((n) => encoder.modeInfo(pick(encoder, n, opts)).seconds);
+	// fragments mostly share one length, so each length is looked up once
+	const seconds = new Map();
+	const of = (n) => {
+		if (!seconds.has(n))
+			seconds.set(n, encoder.modeInfo(pick(encoder, n, opts)).seconds);
+		return seconds.get(n);
+	};
+	const each = lengths.map(of);
 	return each.reduce((a, b) => a + b, 0) + ((opts.lead ?? 1) - lengths.length) * 41 / 300;
 }
