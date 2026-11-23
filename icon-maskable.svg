@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+	<!-- icon.svg's artwork at 80%, inside the round safe zone of a maskable icon (radius 205) -->
+	<rect width="512" height="512" fill="#1c1b1a"/>
+	<g transform="translate(256 256) scale(0.8) translate(-256 -256)">
+		<g fill="none" stroke="#f08a4b" stroke-width="36" stroke-linecap="round">
+			<path d="M96 256h40l36-112 56 224 56-176 44 128 32-64h56"/>
+		</g>
+		<rect x="96" y="400" width="320" height="24" rx="12" fill="#ebe8e2"/>
+		<rect x="96" y="88" width="200" height="24" rx="12" fill="#ebe8e2"/>
+	</g>
+</svg>
