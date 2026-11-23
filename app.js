@@ -1069,6 +1069,7 @@ function setKind(k) {
 		b.setAttribute('aria-checked', b.dataset.kind === k);
 	$('signing').hidden = k === 'hex';
 	$('collect-button').hidden = k === 'hex';
+	$('photo-field').hidden = k === 'hex';
 	$('subject-field').hidden = k !== 'topic';
 	$('to-field').hidden = k !== 'topic';
 	$('text-field').hidden = k === 'hex';
@@ -1470,20 +1471,25 @@ function showAttachments() {
 	estimate();
 }
 
+// A file as an attachment. A still picture of more than BUDGET_DEFAULT
+// pixels is halved to fit it right away; the Size picker brings the
+// original back.
+async function attachFile(f) {
+	const file = { bytes: new Uint8Array(await f.arrayBuffer()), type: f.type, name: fileName(f.name) };
+	const a = { ...file, original: file, budget: null };
+	const pic = pictureInfo(file.bytes);
+	if (pic && !pic.animated && pic.width * pic.height > BUDGET_DEFAULT)
+		await resize(a, BUDGET_DEFAULT).catch(() => {});
+	return a;
+}
+
 $('attach').onchange = async () => {
 	const files = [...$('attach').files];
 	for (const f of files) {
 		if (attachments.length >= FILES_MAX)
 			break;
 		try {
-			const file = { bytes: new Uint8Array(await f.arrayBuffer()), type: f.type, name: fileName(f.name) };
-			const a = { ...file, original: file, budget: null };
-			// a still picture of more than BUDGET_DEFAULT pixels is halved
-			// to fit it right away; the Size picker brings the original back
-			const pic = pictureInfo(file.bytes);
-			if (pic && !pic.animated && pic.width * pic.height > BUDGET_DEFAULT)
-				await resize(a, BUDGET_DEFAULT).catch(() => {});
-			attachments.push(a);
+			attachments.push(await attachFile(f));
 		} catch (err) {
 			console.log('attach', f.name, err.message);
 		}
@@ -1707,8 +1713,9 @@ $('send-button').onclick = async () => {
 	}
 };
 
-// the form empty again for the next post
-function clearForm() {
+// the form empty again for the next post; with keepTo, a Topic's
+// address stays, for the next photo to the same place
+function clearForm(keepTo = false) {
 	attachments = [];
 	showAttachments();
 	$('text').value = '';
@@ -1717,9 +1724,11 @@ function clearForm() {
 	$('include-call').checked = false;
 	$('include-name').checked = false;
 	$('include-avatar').checked = false;
-	$('to-kind').value = '';
-	$('to-value').value = '';
-	setTo();
+	if (!keepTo) {
+		$('to-kind').value = '';
+		$('to-value').value = '';
+		setTo();
+	}
 	replyTo = null;
 	setKind(kind === 'reply' ? 'topic' : kind);
 }
@@ -1755,7 +1764,11 @@ const setCollected = async (posts) => {
 // each sent bundle
 const outboxWith = new Map();
 
-$('collect-button').onclick = async () => {
+$('collect-button').onclick = () => collect();
+
+// The post as the form has it into the Outbox, the form cleared but for
+// the address with keepTo. Resolves to whether it was collected.
+async function collect(keepTo = false) {
 	$('collect-button').disabled = true;
 	try {
 		const d = await draft();
@@ -1765,13 +1778,45 @@ $('collect-button').onclick = async () => {
 		const to = p.to?.key ? { key: view.hex(p.to.key) } : p.to;
 		const posts = [...await collected(), { key: d.key, kind: p.kind, subject: p.subject, text: p.text, parts: p.parts.map(toBase64), parent: p.parent && view.hex(p.parent), to, timestamp: p.timestamp, collected: Date.now() }];
 		await setCollected(posts);
-		clearForm();
+		clearForm(keepTo);
 		$('send-status').textContent = waiting(posts.length);
 		showOutbox();
+		return true;
 	} catch (err) {
 		$('send-status').textContent = `Can't collect: ${err.message}`;
 		estimate();
+		return false;
 	}
+}
+
+// Photo: the camera, then straight into the Outbox, one photo one post,
+// signed as and sent to what the form says. The subject is what was
+// typed, or "Photo 14:32"; the address stays for the next photo. When it
+// can't be collected, the photo stays attached, with why.
+$('photo').onchange = async () => {
+	const f = $('photo').files[0];
+	$('photo').value = '';
+	if (!f)
+		return;
+	if (attachments.length >= FILES_MAX) {
+		$('send-status').textContent = `Can't add the photo: at most ${FILES_MAX} files per post.`;
+		return;
+	}
+	$('send-status').textContent = 'Preparing the photo …';
+	try {
+		attachments.push(await attachFile(f));
+	} catch (err) {
+		$('send-status').textContent = `Can't add the photo: ${err.message}`;
+		return;
+	}
+	showAttachments();
+	const auto = kind === 'topic' && !$('subject').value.trim();
+	if (auto)
+		$('subject').value = `Photo ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+	// a subject of the time goes again if not collected, so a later photo
+	// gets its own time
+	if (!await collect(true) && auto)
+		$('subject').value = '';
 };
 
 const TO_SHOWN = { call: 'to the call sign', name: 'to the name', group: 'to the board', key: 'to the fingerprint' };
