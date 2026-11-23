@@ -3,6 +3,7 @@
 
 import { T, decodeText, TEXT_TABLE } from './records.js';
 import { blake2s } from './blake2s.js';
+import { pictureInfo, small } from './pictures.js';
 
 export const hex = (a) => Array.from(a, (b) => b.toString(16).padStart(2, '0')).join('');
 export const short = (a) => hex(a.subarray(0, 4));
@@ -172,6 +173,8 @@ const revokedAs = (info) => info.revoked?.compromised != null ? 'compromised' : 
 // the arrival of the entry being drawn: a retired key's posts are marked
 // from its revocation on
 let drawing = null;
+// whether a post is drawn in a thread, where pictures show right away
+let inThread = false;
 
 // who signed: face, then call sign and name once trusted, the short
 // fingerprint otherwise, and the button to trust or stop trusting. A
@@ -333,28 +336,67 @@ export function touchToPlay(box) {
 		box.addEventListener(type, (e) => e.pointerType === 'touch' && all('stop'));
 }
 
-// a WebP from a stranger is only drawn when asked for, one under the
-// signature of a trusted key right away
-function picture(n, label, key) {
-	const b = el('button.small', `show ${label}, ${bytes(n.body.length)}`);
-	b.onclick = async () => {
-		const blob = new Blob([n.body], { type: 'image/webp' });
-		if (animatedWebP(n.body)) {
-			try {
-				b.replaceWith(await animated(blob, label));
-			} catch {
-				b.replaceWith(el('span.bad', `${label} can't be shown`));
-			}
-			return;
+// A picture part: PNG, JPEG, GIF or WebP by its bytes, whatever type it
+// claims. In a thread, one up to 1024x1024 under a trusted key's signature
+// is drawn right away, scaled to fit; any other only when asked for. An
+// avatar under a trusted key's signature is drawn right away anywhere.
+// A drawn picture opens at full size when tapped. null if data is no
+// picture.
+function picture(n, data, label, key) {
+	const info = pictureInfo(data);
+	if (!info)
+		return null;
+	const b = el('button.small', `show ${label}, ${info.width}x${info.height}, ${bytes(data.length)}`);
+	const draw = async () => {
+		try {
+			b.replaceWith(await drawn(data, info, label, 'picture', true));
+		} catch {
+			b.replaceWith(el('span.bad', `${label} can't be shown`));
 		}
-		const img = el('img.picture');
-		img.src = URL.createObjectURL(blob);
-		img.alt = label;
-		b.replaceWith(img);
 	};
-	if (trusted(key))
-		queueMicrotask(() => b.onclick());
+	b.onclick = draw;
+	if (trusted(key) && (label === 'avatar' || (inThread && small(info))))
+		queueMicrotask(draw);
 	return el('div.part', b, label === 'avatar' && key ? el('span.dim', ` for fingerprint ${key.slice(0, 8)}`) : '', ' ', saveButton(n, key));
+}
+
+// a picture as an element of class cls, an animated one still until
+// played; with opens, tapping it opens it at full size
+async function drawn(data, info, label, cls, opens) {
+	const blob = new Blob([data], { type: info.type });
+	let e;
+	if (info.animated) {
+		e = await animated(blob, label, cls);
+	} else {
+		e = el(`img.${cls}`);
+		e.alt = label;
+		e.src = URL.createObjectURL(blob);
+		await e.decode();
+	}
+	if (opens) {
+		e.classList.add('opens');
+		e.onclick = () => fullSize(data, info, label);
+	}
+	return e;
+}
+
+// the picture at its own size, scrolling if it doesn't fit, closed by its
+// button, Escape or a tap beside it
+async function fullSize(data, info, label) {
+	const close = el('button.small', 'Close');
+	const dialog = el('dialog.picture-dialog', el('div.row', el('span.dim', `${info.width}x${info.height}, ${bytes(data.length)}`), close),
+		el('div.picture-full', await drawn(data, info, label, 'picture-natural', false)));
+	touchToPlay(dialog);
+	document.body.append(dialog);
+	const done = () => {
+		dialog.close();
+		dialog.remove();
+	};
+	close.onclick = done;
+	dialog.onclick = (e) => e.target === dialog && done();
+	dialog.onclose = () => dialog.remove();
+	dialog.showModal();
+	close.focus();
 }
 
 // ------------------------------------------------------------- saving
@@ -502,15 +544,16 @@ function leaf(n, key = null) {
 	case T.MENTION:
 		return el('div.part', '↗ ', el('span.key', short(n.id)));
 	case T.WEBP:
-		return picture(n, 'picture', key);
+		return picture(n, n.body, 'picture', key) ?? el('div.part.dim', 'a WebP picture that can\'t be read, ', bytes(n.body.length), ' ', saveButton(n, key));
 	case T.AVATAR:
 		if (n.ignored)
 			return el('div.part.dim', `avatar ignored: ${n.ignored}`);
-		return picture(n, 'avatar', key);
+		return picture(n, n.body, 'avatar', key);
 	case T.CODEC2:
 		return el('div.part', `🔊 Codec2 mode ${n.mode}, ${bytes(n.body.length - 1)} `, saveButton(n, key));
 	case T.MIME:
-		return el('div.part', '📄 ', n.fileName || 'unnamed', el('span.dim', ` ${n.mime}, ${bytes(n.content.length)} `), saveButton(n, key));
+		// a picture is drawn whatever type it claims, anything else is a file
+		return picture(n, n.content, 'picture', key) ?? el('div.part', '📄 ', n.fileName || 'unnamed', el('span.dim', ` ${n.mime}, ${bytes(n.content.length)} `), saveButton(n, key));
 	case T.FRAGMENT:
 		return el('div.part.dim', `Fragment ${n.index} of ${n.N}, ${n.K} needed, root ${short(n.root)}`, n.verified ? '' : ' (unchecked)');
 	case T.REQUEST_POST:
@@ -583,12 +626,14 @@ export const nodes = (list, key = null) => el('div.nodes', ...list.map((n) => no
 // post with its prefixes; a retired key is marked from the post's arrival
 export function postBox(p) {
 	drawing = p.arrival;
+	inThread = true;
 	try {
 		const box = el('div.box.tree-post', el('div.box-head.signer', el('span.ok', '✓'), ...signer(p.signed)), node(p.node, hex(p.signed.key)));
 		touchToPlay(box);
 		return box;
 	} finally {
 		drawing = null;
+		inThread = false;
 	}
 }
 

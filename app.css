@@ -297,6 +297,23 @@ button.trust { flex: none; }
 .fingerprint span { display: block; }
 
 .picture { display: block; max-width: 100%; max-height: 320px; width: auto; height: auto; border-radius: 6px; }
+.picture.opens, .opens .picture { cursor: zoom-in; }
+/* a drawn picture on its own line, its Save under it */
+.part > .animated { display: block; width: fit-content; margin-bottom: 4px; }
+.part > img.picture { margin-bottom: 4px; }
+.picture-dialog {
+	max-width: calc(100vw - 16px);
+	max-height: calc(100vh - 16px);
+	background: var(--card);
+	color: var(--fg);
+	border: 1px solid var(--line);
+	border-radius: 12px;
+	padding: 8px;
+}
+.picture-dialog::backdrop { background: rgb(0 0 0 / 0.7); }
+.picture-dialog .row { justify-content: space-between; align-items: center; margin: 0 0 8px; }
+.picture-full { overflow: auto; max-width: calc(100vw - 34px); max-height: calc(100vh - 90px); }
+.picture-natural { display: block; max-width: none; max-height: none; }
 .animated { display: inline-block; max-width: 100%; -webkit-touch-callout: none; user-select: none; }
 
 /* nothing moves where the system asks for less motion */
