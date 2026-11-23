@@ -1366,6 +1366,8 @@ function describeFile(a) {
 // a white background replaces transparency. Drawing it anew leaves the
 // camera's metadata (and any GPS position in it) behind.
 const SHRINK_SIDES = [320, 640, 1280];
+// what a larger still picture is shrunk to when attached
+const SHRINK_DEFAULT = 640;
 
 async function shrink(bytes, type, side) {
 	const img = await createImageBitmap(new Blob([bytes], { type }));
@@ -1399,14 +1401,13 @@ function shrinkPicker(a) {
 	const sides = SHRINK_SIDES.filter((s) => s < Math.max(pic.width, pic.height));
 	if (!sides.length)
 		return null;
-	const select = view.el('select', view.el('option', 'original'), ...sides.map((s) => view.el('option', `${s} pixels, JPEG`)));
-	[...select.options].forEach((o, i) => o.value = i ? sides[i - 1] : '');
+	const select = view.el('select', ...sides.map((s) => view.el('option', `${s} pixels, JPEG`)), view.el('option', `original, ${pic.width}x${pic.height}`));
+	[...select.options].forEach((o, i) => o.value = sides[i] ?? '');
 	select.value = a.side ?? '';
 	select.onchange = async () => {
 		select.disabled = true;
-		const side = Number(select.value) || null;
 		try {
-			Object.assign(a, side ? { bytes: await shrink(a.original.bytes, a.original.type, side), type: 'image/jpeg', name: a.original.name && fileName(a.original.name.replace(/\.[a-z0-9]+$/, '') + '.jpg') } : a.original, { side });
+			await resize(a, Number(select.value) || null);
 		} catch (err) {
 			select.value = a.side ?? '';
 			$('attach-info').textContent = `Can't shrink it: ${err.message}`;
@@ -1414,6 +1415,11 @@ function shrinkPicker(a) {
 		showAttachments();
 	};
 	return view.el('label.field', 'Size ', select);
+}
+
+// an attachment at side pixels on its long side, or the original with null
+async function resize(a, side) {
+	Object.assign(a, side ? { bytes: await shrink(a.original.bytes, a.original.type, side), type: 'image/jpeg', name: a.original.name && fileName(a.original.name.replace(/\.[a-z0-9]+$/, '') + '.jpg') } : a.original, { side });
 }
 
 function showAttachments() {
@@ -1454,7 +1460,13 @@ $('attach').onchange = async () => {
 			break;
 		try {
 			const file = { bytes: new Uint8Array(await f.arrayBuffer()), type: f.type, name: fileName(f.name) };
-			attachments.push({ ...file, original: file, side: null });
+			const a = { ...file, original: file, side: null };
+			// a still picture larger than SHRINK_DEFAULT is shrunk to it
+			// right away; the Size picker brings the original back
+			const pic = pictureInfo(file.bytes);
+			if (pic && !pic.animated && Math.max(pic.width, pic.height) > SHRINK_DEFAULT)
+				await resize(a, SHRINK_DEFAULT).catch(() => {});
+			attachments.push(a);
 		} catch (err) {
 			console.log('attach', f.name, err.message);
 		}
