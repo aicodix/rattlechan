@@ -14,7 +14,7 @@ import { encodeCall, decodeText, fromCall, fromName, textUTF8, webpSize, signed 
 import { smallestText } from './encodings.js';
 import { openKeys } from './keys.js';
 import { conversations, boards } from './tree.js';
-import { pictureInfo } from './pictures.js';
+import { pictureInfo, huge } from './pictures.js';
 import * as view from './render.js';
 
 const $ = (id) => document.getElementById(id);
@@ -1355,7 +1355,7 @@ function describeFile(a) {
 	const size = view.bytes(a.bytes.length);
 	const pic = pictureInfo(a.bytes);
 	if (pic)
-		return `${pic.type.slice(6).toUpperCase()} picture${pic.animated ? ', animated' : ''}, ${pic.width}x${pic.height}, ${size}`;
+		return `${pic.type.slice(6).toUpperCase()} picture${pic.animated ? ', animated' : ''}, ${pic.width}x${pic.height}, ${size}${huge(pic) ? ', so large that stations warn before drawing it' : ''}`;
 	if (isCodec2File(a.bytes))
 		return `Codec2 voice, mode ${CODEC2_MODES[a.bytes[5]] ?? a.bytes[5]}, ${view.bytes(a.bytes.length - 7)} of voice`;
 	return `${a.type || 'a file of unknown type'}, ${size}`;

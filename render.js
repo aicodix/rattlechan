@@ -3,7 +3,7 @@
 
 import { T, decodeText, TEXT_TABLE } from './records.js';
 import { blake2s } from './blake2s.js';
-import { pictureInfo, small } from './pictures.js';
+import { pictureInfo, small, huge, decodedBytes, WARN_MAX } from './pictures.js';
 
 export const hex = (a) => Array.from(a, (b) => b.toString(16).padStart(2, '0')).join('');
 export const short = (a) => hex(a.subarray(0, 4));
@@ -20,7 +20,7 @@ export function el(spec, ...children) {
 	return e;
 }
 
-export const bytes = (n) => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KiB` : `${(n / 1048576).toFixed(1)} MiB`;
+export const bytes = (n) => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KiB` : n < 1073741824 ? `${(n / 1048576).toFixed(1)} MiB` : `${(n / 1073741824).toFixed(1)} GiB`;
 
 export const when = (ms) => new Date(ms).toLocaleString(undefined, {
 	year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
@@ -346,8 +346,15 @@ function picture(n, data, label, key) {
 	const info = pictureInfo(data);
 	if (!info)
 		return null;
-	const b = el('button.small', `show ${label}, ${info.width}x${info.height}, ${bytes(data.length)}`);
+	// beyond 4096 on a side only after a warning, never right away
+	const warn = huge(info);
+	const b = el(warn ? 'button.small.warn' : 'button.small', `show ${warn ? 'very large ' : ''}${label}, ${info.width}x${info.height}, ${bytes(data.length)}`);
 	const draw = async () => {
+		if (warn && !await ask('Show a very large picture?', [
+			`It is ${info.width}x${info.height} pixels in a file of ${bytes(data.length)}. Drawing it takes at least ${bytes(decodedBytes(info))} of memory${info.animated ? ' for each of its frames' : ''}, and may freeze or crash the app.`,
+			`Pictures larger than ${WARN_MAX} pixels on a side are rare on the air; a small file holding a huge picture is a known trick to bring a station down.`,
+		], 'Show it'))
+			return;
 		try {
 			b.replaceWith(await drawn(data, info, label, 'picture', true));
 		} catch {

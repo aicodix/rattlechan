@@ -106,5 +106,16 @@ function webp(b) {
 	return { type: 'image/webp', ...size, animated };
 }
 
+// Beyond this on either side a picture is only drawn after a warning: a
+// small file can hold a picture that takes gigabytes to decode (a
+// decoding bomb, SPEC.md, Client policy)
+export const WARN_MAX = 4096;
+
+// the memory a decoded picture takes, four bytes a pixel, for one frame
+export const decodedBytes = (info) => info.width * info.height * 4;
+
+// whether drawing a picture needs a warning first
+export const huge = (info) => info.width > WARN_MAX || info.height > WARN_MAX;
+
 // whether a picture is drawn right away in a thread
 export const small = (info) => !!info && info.width <= SHOWN_MAX && info.height <= SHOWN_MAX;

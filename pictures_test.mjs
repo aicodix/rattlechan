@@ -4,7 +4,7 @@
 // moving GIF, and a PNG 2000 pixels wide.
 
 import { readFile } from 'node:fs/promises';
-import { pictureInfo, small, SHOWN_MAX } from './pictures.js';
+import { pictureInfo, small, huge, decodedBytes, SHOWN_MAX, WARN_MAX } from './pictures.js';
 
 let checks = 0, failed = 0;
 
@@ -47,6 +47,22 @@ check('small', small({ width: 1024, height: 1024 }), true);
 check('too wide', small({ width: 1025, height: 10 }), false);
 check('too tall', small({ width: 10, height: 1025 }), false);
 check('unknown', small(null), false);
+
+// beyond 4096 on either side, a warning first
+check('warning limit', WARN_MAX, 4096);
+check('4096x4096 drawn without a warning', huge({ width: 4096, height: 4096 }), false);
+check('too wide to draw without a warning', huge({ width: 4097, height: 10 }), true);
+check('too tall to draw without a warning', huge({ width: 10, height: 4097 }), true);
+check('memory of a decoded picture', decodedBytes({ width: 20000, height: 20000 }), 1.6e9);
+{
+	// a bomb: a PNG header claiming 50000x50000 in a few dozen bytes
+	const bomb = await file('examples/pictures/still.png');
+	new DataView(bomb.buffer, bomb.byteOffset).setUint32(16, 50000);
+	new DataView(bomb.buffer, bomb.byteOffset).setUint32(20, 50000);
+	const i = pictureInfo(bomb);
+	check('a bomb is read from its header', i && `${i.width}x${i.height}`, '50000x50000');
+	check('a bomb needs a warning', huge(i), true);
+}
 
 console.log(failed ? `${failed} of ${checks} checks failed` : `all ${checks} checks passed`);
 if (failed)
