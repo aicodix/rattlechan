@@ -1657,7 +1657,15 @@ const toBase64 = (b) => {
 	return btoa(s);
 };
 const fromBase64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
-const setCollected = (posts) => store.putData('outbox', { posts });
+// what the Send tab says waits in the Outbox
+const waiting = (n) => n ? `Collected. ${n === 1 ? 'One post waits' : `${n} posts wait`} in the Outbox.` : '';
+const setCollected = async (posts) => {
+	await store.putData('outbox', { posts });
+	// a note on the Send tab about what waits stays true once posts are
+	// sent or removed
+	if ($('send-status').textContent.startsWith('Collected.'))
+		$('send-status').textContent = waiting(posts.length);
+};
 // whether each key's call sign, name and avatar go along, off again after
 // each sent bundle
 const outboxWith = new Map();
@@ -1673,7 +1681,7 @@ $('collect-button').onclick = async () => {
 		const posts = [...await collected(), { key: d.key, kind: p.kind, subject: p.subject, text: p.text, parts: p.parts.map(toBase64), parent: p.parent && view.hex(p.parent), to, timestamp: p.timestamp, collected: Date.now() }];
 		await setCollected(posts);
 		clearForm();
-		$('send-status').textContent = `Collected. ${posts.length === 1 ? 'One post waits' : `${posts.length} posts wait`} in the Outbox.`;
+		$('send-status').textContent = waiting(posts.length);
 		showOutbox();
 	} catch (err) {
 		$('send-status').textContent = `Can't collect: ${err.message}`;
