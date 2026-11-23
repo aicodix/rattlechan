@@ -60,6 +60,34 @@ export function composeAvatar({ avatar, callSign = null, name = null, sign }) {
 	return R.payload([sign(...from, R.avatar(avatar))]);
 }
 
+// Several posts of one key, collected before sending, in one Signed
+// record: From-Call and From-Name once in front of a Bundle of them
+// (SPEC.md, Prefixes and handles) and the Avatar once among them. Each post
+// keeps its own timestamp and its record is the same as alone, so its ID
+// is the one it would have in a frame of its own. posts are what compose()
+// takes, without the key's call sign, name and avatar. Returns the Signed
+// record; several of them, one per key, share a payload.
+export function bundled({ posts, callSign = null, name = null, avatar = null, sign }) {
+	if (!sign)
+		throw new RangeError('a bundle is signed');
+	if (!posts.length)
+		throw new RangeError('a bundle needs posts');
+	const from = [];
+	if (callSign)
+		from.push(R.fromCall(callSign));
+	if (name)
+		from.push(R.fromName(smallestText(name)));
+	const inner = [];
+	for (const p of posts)
+		inner.push(...post({ ...p, callSign: null, name: null }));
+	if (avatar)
+		inner.push(R.avatar(avatar));
+	// prefixes apply to the next record only, so more than one post under
+	// them goes in a Bundle
+	const children = posts.length + (avatar ? 1 : 0);
+	return sign(...from, ...(from.length && children > 1 ? [R.bundle(...inner)] : inner));
+}
+
 function address(to) {
 	if (!to)
 		return [];

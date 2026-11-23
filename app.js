@@ -8,9 +8,9 @@ import { loadCrypto } from './crypto.js';
 import { loadHydra } from './hydra.js';
 import { openStation } from './station.js';
 import { listen, inputs, decodeRecording } from './receiver.js';
-import { compose, composeAvatar, fill, pack, split, chain, pick, secondsFor, airtime, needs, SECONDS_DEFAULT, SNR_DEFAULT, REDUNDANCY_DEFAULT } from './sender.js';
+import { compose, composeAvatar, bundled, fill, pack, split, chain, pick, secondsFor, airtime, needs, SECONDS_DEFAULT, SNR_DEFAULT, REDUNDANCY_DEFAULT } from './sender.js';
 import { output, encoderFor, play, LEVEL_DEFAULT, LEVEL_MIN } from './transmitter.js';
-import { encodeCall, decodeText, fromCall, fromName, textUTF8, T } from './records.js';
+import { encodeCall, decodeText, fromCall, fromName, textUTF8, payload as framePayload, T } from './records.js';
 import { smallestText } from './encodings.js';
 import { openKeys } from './keys.js';
 import { conversations, boards } from './tree.js';
@@ -53,6 +53,8 @@ function showTab(name) {
 		refreshStorage();
 	if (name === 'inbox' || name === 'boards')
 		showReading();
+	if (name === 'outbox')
+		showOutbox();
 }
 
 for (const b of document.querySelectorAll('nav [role=tab]'))
@@ -1018,6 +1020,7 @@ async function fillKeys() {
 	$('no-keys').hidden = active.length > 0;
 	$('signer-field').hidden = active.length === 0;
 	estimate();
+	showOutbox();
 }
 
 $('signer').onchange = () => {
@@ -1064,6 +1067,7 @@ function setKind(k) {
 	for (const b of document.querySelectorAll('.segmented [role=radio]'))
 		b.setAttribute('aria-checked', b.dataset.kind === k);
 	$('signing').hidden = k === 'hex';
+	$('collect-button').hidden = k === 'hex';
 	$('subject-field').hidden = k !== 'topic';
 	$('to-field').hidden = k !== 'topic';
 	$('text-field').hidden = k === 'hex';
@@ -1144,7 +1148,7 @@ function address() {
 	return { to: to === 'name' ? { name: v } : { group: v } };
 }
 
-// the post as it stands, signed, or null with the reason
+// the post as it stands, signed, or { why }
 async function draft() {
 	const o = await own();
 	if (kind === 'hex') {
@@ -1187,15 +1191,16 @@ async function draft() {
 	const where = kind === 'topic' ? address() : { to: null };
 	if (where.why)
 		return { why: where.why };
+	const post = { kind, subject: kind === 'topic' ? $('subject').value.trim() : '', text, parent: kind === 'reply' ? replyTo : null, to: where.to, timestamp: Math.floor(Date.now() / 1000) };
 	const payload = compose({
-		kind, subject: $('subject').value.trim(), text, parent: replyTo,
+		...post,
 		// the key's call sign and name only when asked for: they cost bytes,
 		// and stations remember them from earlier posts
-		callSign: withCall ? k.callSign : null, name: withName ? k.name : null, to: where.to,
+		callSign: withCall ? k.callSign : null, name: withName ? k.name : null,
 		sign: await keys.signer(k.key),
 		avatar: withAvatar ? k.avatar : null,
 	});
-	return { payload, o };
+	return { payload, o, post, key: k.key };
 }
 
 // what the post would take on the air, updated while typing
@@ -1214,6 +1219,7 @@ async function estimate() {
 		d = { why: err.message };
 	}
 	$('send-button').disabled = !d.payload || !!sending;
+	$('collect-button').disabled = !d.payload || !!d.raw || stepping;
 	$('hex-preview').replaceChildren();
 	if (!d.payload) {
 		// nothing to send, so no choice of how
@@ -1223,12 +1229,8 @@ async function estimate() {
 	}
 	// the modes are the same at both rates, so the estimate uses 48000
 	const E = await encoderFor(48000);
-	const anon = d.o.callSign ? '' : ' Sent as ANONYMOUS.';
-	const describe = (p) => {
-		const info = E.modeInfo(p.modes[0]);
-		return `${info.modulation} ${info.codeRate}, decodes from ${needs(p.modes[0])} dB`;
-	};
-	const fits = pick(E, d.payload.length, d.o) !== null;
+	const anon = anonymous(d);
+	const describe = (p) => describeMode(E, p);
 	if (d.raw) {
 		// what stations would make of it, sent all the same
 		const a = station.analyze(d.payload);
@@ -1243,15 +1245,37 @@ async function estimate() {
 		}
 		return;
 	}
-	$('send-choice').hidden = fits;
+	showPlan(E, d, SEND_UI);
+}
+
+const anonymous = (d) => d.o.callSign ? '' : ' Sent as ANONYMOUS.';
+const describeMode = (E, p) => {
+	const info = E.modeInfo(p.modes[0]);
+	return `${info.modulation} ${info.codeRate}, decodes from ${needs(p.modes[0])} dB`;
+};
+
+// where a draft's plan shows: the size and airtime, the choice of how
+// when it doesn't fit one frame (its radios by name, their labels and one
+// at a time) and the button that sends it
+const SEND_UI = { info: 'send-info', choice: 'send-choice', how: 'how', fragments: 'choice-fragments', longer: 'choice-longer', one: 'one-at-a-time', button: 'send-button' };
+const OUTBOX_UI = { info: 'outbox-info', choice: 'outbox-choice', how: 'outbox-how', fragments: 'outbox-fragments', longer: 'outbox-longer', one: 'outbox-one-at-a-time', button: 'outbox-send' };
+
+// how a draft would go on the air, in one frame, as Fragments or in one
+// longer frame, shown in ui
+function showPlan(E, d, ui) {
+	const anon = anonymous(d);
+	const describe = (p) => describeMode(E, p);
+	const fits = pick(E, d.payload.length, d.o) !== null;
+	$(ui.choice).hidden = fits;
+	$(ui.button).disabled = !!sending;
 	if (fits) {
 		const p = plan(E, d, 'fragments');
-		$('send-info').textContent = `${view.bytes(d.payload.length)} in one frame of ${p.airtime.toFixed(1)} s, ${describe(p)}.${anon}`;
+		$(ui.info).textContent = `${view.bytes(d.payload.length)} in one frame of ${p.airtime.toFixed(1)} s, ${describe(p)}.${anon}`;
 		return;
 	}
-	$('send-info').textContent = `${view.bytes(d.payload.length)}.${anon}`;
+	$(ui.info).textContent = `${view.bytes(d.payload.length)}.${anon}`;
 	const choice = (how, span, label) => {
-		const radio = document.querySelector(`input[name=how][value=${how}]`);
+		const radio = document.querySelector(`input[name=${ui.how}][value=${how}]`);
 		try {
 			const p = plan(E, d, how);
 			radio.disabled = false;
@@ -1261,14 +1285,14 @@ async function estimate() {
 			$(span).textContent = err.message;
 		}
 	};
-	choice('fragments', 'choice-fragments', (p) => `${p.frames.length} fragments of ${E.modeInfo(p.modes[0]).seconds.toFixed(1)} s, any ${p.K} of them enough, ${p.airtime.toFixed(1)} s in all, ${describe(p)}`);
-	choice('longer', 'choice-longer', (p) => `one frame of ${p.airtime.toFixed(1)} s, ${describe(p)}`);
-	const radios = [...document.querySelectorAll('input[name=how]')];
+	choice('fragments', ui.fragments, (p) => `${p.frames.length} fragments of ${E.modeInfo(p.modes[0]).seconds.toFixed(1)} s, any ${p.K} of them enough, ${p.airtime.toFixed(1)} s in all, ${describe(p)}`);
+	choice('longer', ui.longer, (p) => `one frame of ${p.airtime.toFixed(1)} s, ${describe(p)}`);
+	const radios = [...document.querySelectorAll(`input[name=${ui.how}]`)];
 	if (radios.find((r) => r.checked)?.disabled)
 		radios.find((r) => !r.disabled)?.click();
 	// one at a time is a way of sending fragments
-	$('one-at-a-time').closest('label').hidden = radios.find((r) => r.checked)?.value !== 'fragments';
-	$('send-button').disabled = !d.payload || !!sending || radios.every((r) => r.disabled);
+	$(ui.one).closest('label').hidden = radios.find((r) => r.checked)?.value !== 'fragments';
+	$(ui.button).disabled = !!sending || radios.every((r) => r.disabled);
 }
 
 // How a draft goes on the air, at the settings or, with how = 'longer', in
@@ -1310,8 +1334,9 @@ $('hex').oninput = typed;
 // stop while sending. Fragments go out all at once, chained, or with step
 // = { next, finish } (two buttons) one at a time, each its own
 // transmission with its leading noise, next sending the next and finish
-// ending early. Resolves to true once it went out or was finished, false
-// if stopped.
+// ending early. Resolves to true once it went out or was finished with
+// enough fragments to decode, 'short' if finished with fewer, false if
+// stopped.
 async function transmit(d, how, say, stop, step = null) {
 	if (sending || stepping)
 		throw new Error('already sending');
@@ -1333,6 +1358,7 @@ async function transmit(d, how, say, stop, step = null) {
 		deafUntil = Infinity;
 		sending = play(ctx, c.audio, outputLevel());
 		$('send-button').disabled = true;
+		$('outbox-send').disabled = true;
 		stop.onclick = () => sending?.stop();
 		stop.hidden = false;
 		say(`Sending ${what}, ${c.seconds.toFixed(1)} s …`);
@@ -1374,6 +1400,7 @@ async function transmit(d, how, say, stop, step = null) {
 			return complete;
 		} finally {
 			estimate();
+			showOutbox();
 		}
 	}
 	// one at a time: the operator presses next for each after the first
@@ -1395,7 +1422,7 @@ async function transmit(d, how, say, stop, step = null) {
 				step.finish.hidden = true;
 				if (!go) {
 					say(`Finished after ${i} of ${n} fragments${i < s.K ? `, fewer than the ${s.K} needed` : ''}.`);
-					return true;
+					return i >= s.K ? true : 'short';
 				}
 			}
 			if (!await air([s.frames[i]], `fragment ${i + 1} of ${n}`)) {
@@ -1412,6 +1439,7 @@ async function transmit(d, how, say, stop, step = null) {
 		step.finish.hidden = true;
 		lockSend(false);
 		estimate();
+		showOutbox();
 	}
 }
 
@@ -1475,7 +1503,7 @@ $('test-output').onclick = async () => {
 
 // the post can't change while its fragments go out one at a time
 function lockSend(on) {
-	for (const e of document.querySelectorAll('#send input, #send textarea, #send select, #send .segmented button'))
+	for (const e of document.querySelectorAll('#send input, #send textarea, #send select, #send .segmented button, #collect-button, #outbox input, #outbox .remove'))
 		e.disabled = on;
 }
 
@@ -1484,6 +1512,7 @@ const oneAtATime = () => recall('oneAtATime') === '1';
 const setOneAtATime = (on) => {
 	remember('oneAtATime', on ? '1' : '0');
 	$('one-at-a-time').checked = on;
+	$('outbox-one-at-a-time').checked = on;
 };
 
 $('send-button').onclick = async () => {
@@ -1497,22 +1526,227 @@ $('send-button').onclick = async () => {
 			throw new Error(d.why);
 		const how = d.raw ? 'longer' : document.querySelector('input[name=how]:checked')?.value ?? 'fragments';
 		const step = how === 'fragments' && oneAtATime() ? { next: $('send-button'), finish: $('send-finish') } : null;
-		if (await transmit(d, how, say, $('send-stop'), step)) {
-			$('text').value = '';
-			$('subject').value = '';
-			$('hex').value = '';
-			$('include-call').checked = false;
-			$('include-name').checked = false;
-			$('include-avatar').checked = false;
-			$('to-kind').value = '';
-			$('to-value').value = '';
-			setTo();
-			replyTo = null;
-			setKind(kind === 'reply' ? 'topic' : kind);
-		}
+		if (await transmit(d, how, say, $('send-stop'), step))
+			clearForm();
 	} catch (err) {
 		say(`Can't send: ${err.message}`);
 		estimate();
+	}
+};
+
+// the form empty again for the next post
+function clearForm() {
+	$('text').value = '';
+	$('subject').value = '';
+	$('hex').value = '';
+	$('include-call').checked = false;
+	$('include-name').checked = false;
+	$('include-avatar').checked = false;
+	$('to-kind').value = '';
+	$('to-value').value = '';
+	setTo();
+	replyTo = null;
+	setKind(kind === 'reply' ? 'topic' : kind);
+}
+
+// ---------------------------------------------------------------- outbox
+
+// Posts collected to go out later, together: each keeps the timestamp of
+// when it was collected, so its post ID is known and stays; they are
+// signed when sent, one Signed record per key with its call sign, name
+// and avatar once in front of them (sender.js, bundled()). Kept in
+// data/outbox.json as { posts: [{ key, kind, subject, text, parent, to,
+// timestamp, collected }] }, parent and a To fingerprint in hex.
+const collected = async () => (await store.getData('outbox'))?.posts ?? [];
+const setCollected = (posts) => store.putData('outbox', { posts });
+// whether each key's call sign, name and avatar go along, off again after
+// each sent bundle
+const outboxWith = new Map();
+
+$('collect-button').onclick = async () => {
+	$('collect-button').disabled = true;
+	try {
+		const d = await draft();
+		if (!d.post)
+			throw new Error(d.why);
+		const p = d.post;
+		const to = p.to?.key ? { key: view.hex(p.to.key) } : p.to;
+		const posts = [...await collected(), { key: d.key, kind: p.kind, subject: p.subject, text: p.text, parent: p.parent && view.hex(p.parent), to, timestamp: p.timestamp, collected: Date.now() }];
+		await setCollected(posts);
+		clearForm();
+		$('send-status').textContent = `Collected. ${posts.length === 1 ? 'One post waits' : `${posts.length} posts wait`} in the Outbox.`;
+		showOutbox();
+	} catch (err) {
+		$('send-status').textContent = `Can't collect: ${err.message}`;
+		estimate();
+	}
+};
+
+const TO_SHOWN = { call: 'to the call sign', name: 'to the name', group: 'to the board', key: 'to the fingerprint' };
+// typed text, in its own direction
+const typedText = (spec, text) => {
+	const e = view.el(spec, text);
+	e.dir = 'auto';
+	return e;
+};
+
+// the collected posts by key, each with a Remove button
+let showingOutbox = 0;
+async function showOutbox() {
+	if (!store || $('outbox').hidden)
+		return;
+	const mine = ++showingOutbox;
+	const posts = await collected();
+	const list = keys ? await keys.list() : [];
+	if (mine !== showingOutbox)
+		return;
+	const byKey = new Map();
+	for (const p of posts)
+		byKey.set(p.key, [...byKey.get(p.key) ?? [], p]);
+	$('outbox-empty').hidden = posts.length > 0;
+	$('outbox-groups').replaceChildren(...[...byKey].map(([key, mine]) => {
+		const k = list.find((x) => x.key === key);
+		const r = station.keyInfo(key).revoked;
+		const w = outboxWith.get(key) ?? { call: false, name: false, avatar: false };
+		outboxWith.set(key, w);
+		// the key's call sign, name and avatar, once for all its posts
+		const include = (what, shown, bytes) => {
+			const box = view.el('input');
+			box.type = 'checkbox';
+			box.checked = w[what];
+			box.disabled = stepping;
+			box.onchange = () => {
+				w[what] = box.checked;
+				outboxEstimate();
+			};
+			return view.el('label.check', box, ' ', view.el('span', `Include the ${what === 'call' ? 'call sign' : what}`, shown ? ' ' : '', shown, `, ${view.bytes(bytes)} more`));
+		};
+		const icon = view.identicon(fromHex(key));
+		const head = view.el('div.key-card-head', k?.avatar ? view.withAvatar(icon, k.avatar) : icon, view.el('strong', k ? k.label : 'a key no longer held'), view.el('span.key', key.slice(0, 8)));
+		const out = [head];
+		if (!k)
+			out.push(view.el('p.warn', 'This key is gone from the station, so these posts can\'t be signed: remove them.'));
+		else if (r.retired !== null || r.compromised !== null)
+			out.push(view.el('p.warn', 'This key is revoked and signs nothing new: remove these posts.'));
+		else {
+			if (k.callSign)
+				out.push(include('call', view.el('span.call', k.callSign), fromCall(k.callSign).length));
+			if (k.name)
+				out.push(include('name', typedText('span', k.name), fromName(smallestText(k.name)).length));
+			if (k.avatar)
+				out.push(include('avatar', '', k.avatar.length));
+		}
+		for (const p of mine) {
+			const remove = view.el('button.small.remove', 'Remove');
+			remove.disabled = stepping;
+			remove.onclick = async () => {
+				await setCollected((await collected()).filter((x) => !(x.key === p.key && x.collected === p.collected)));
+				showOutbox();
+			};
+			const [to, handle] = p.to ? Object.entries(p.to)[0] : [];
+			const where = p.kind === 'reply' ? ['↩ to ', view.el('span.key', p.parent.slice(0, 8))]
+				: to ? [`${TO_SHOWN[to]} `, to === 'key' ? view.el('span.key', handle.slice(0, 8)) : typedText('span', handle)]
+				: ['to everyone'];
+			out.push(view.el('div.outbox-post',
+				p.kind === 'topic' ? typedText('strong', p.subject) : view.el('strong', 'Reply'),
+				view.el('span.dim', ...where, ` · collected ${view.when(p.collected)}`),
+				typedText('p.outbox-text', p.text.length > 300 ? `${p.text.slice(0, 300)} …` : p.text),
+				view.el('div.row', remove)));
+		}
+		return view.el('div.key-card', ...out);
+	}));
+	return outboxEstimate();
+}
+
+// all collected posts in one payload, a Signed record per key, or { why }
+async function outboxDraft() {
+	const o = await own();
+	const posts = await collected();
+	// the empty outbox says so itself
+	if (!posts.length)
+		return { why: '' };
+	if (!keys)
+		return { why: 'CRYPTO failed to load, so nothing can be signed.' };
+	const list = await keys.list();
+	const byKey = new Map();
+	for (const p of posts)
+		byKey.set(p.key, [...byKey.get(p.key) ?? [], p]);
+	const records = [];
+	for (const [key, mine] of byKey) {
+		const k = list.find((x) => x.key === key);
+		const r = station.keyInfo(key).revoked;
+		if (!k || r.retired !== null || r.compromised !== null)
+			return { why: 'Remove the posts of keys that can\'t sign first.' };
+		const w = outboxWith.get(key) ?? {};
+		records.push(bundled({
+			posts: mine.map((p) => ({
+				kind: p.kind, subject: p.subject, text: p.text, timestamp: p.timestamp,
+				parent: p.parent && fromHex(p.parent),
+				to: p.to?.key ? { key: fromHex(p.to.key) } : p.to,
+			})),
+			callSign: w.call ? k.callSign : null,
+			name: w.name ? k.name : null,
+			avatar: w.avatar ? k.avatar : null,
+			sign: await keys.signer(key),
+		}));
+	}
+	return { payload: framePayload(records), o, posts };
+}
+
+let outboxEstimating = 0;
+async function outboxEstimate() {
+	if (stepping || !store)
+		return;
+	const mine = ++outboxEstimating;
+	let d;
+	try {
+		d = await outboxDraft();
+	} catch (err) {
+		d = { why: err.message };
+	}
+	if (mine !== outboxEstimating)
+		return;
+	if (!d.payload) {
+		$('outbox-send').disabled = true;
+		$('outbox-choice').hidden = true;
+		$('outbox-info').textContent = d.why;
+		return;
+	}
+	const n = d.posts.length;
+	showPlan(await encoderFor(48000), d, OUTBOX_UI);
+	$('outbox-info').prepend(`${n === 1 ? 'One post' : `${n} posts`}, `);
+}
+
+for (const r of document.querySelectorAll('input[name=outbox-how]'))
+	r.onchange = outboxEstimate;
+$('outbox-one-at-a-time').onchange = () => setOneAtATime($('outbox-one-at-a-time').checked);
+
+$('outbox-send').onclick = async () => {
+	$('outbox-send').disabled = true;
+	const say = (t) => {
+		$('outbox-status').textContent = t;
+	};
+	try {
+		const d = await outboxDraft();
+		if (!d.payload)
+			throw new Error(d.why);
+		const how = document.querySelector('input[name=outbox-how]:checked')?.value ?? 'fragments';
+		const step = how === 'fragments' && oneAtATime() ? { next: $('outbox-send'), finish: $('outbox-finish') } : null;
+		// finished with too few fragments to decode, the posts stay to be
+		// sent again, with the same IDs
+		const done = await transmit(d, how, say, $('outbox-stop'), step);
+		if (done === 'short')
+			say(`${$('outbox-status').textContent} The posts stay here.`);
+		if (done === true) {
+			// the ones sent leave, ones collected meanwhile stay
+			const sent = new Set(d.posts.map((p) => `${p.key}_${p.collected}`));
+			await setCollected((await collected()).filter((p) => !sent.has(`${p.key}_${p.collected}`)));
+			outboxWith.clear();
+			showOutbox();
+		}
+	} catch (err) {
+		say(`Can't send: ${err.message}`);
+		outboxEstimate();
 	}
 };
 
@@ -1521,7 +1755,8 @@ await trustOwn();
 await fillKeys();
 await showRelay();
 $('one-at-a-time').checked = oneAtATime();
+$('outbox-one-at-a-time').checked = oneAtATime();
 setKind('topic');
 
 const startTab = recall('tab');
-showTab(['inbox', 'boards', 'log', 'send', 'station'].includes(startTab) ? startTab : 'inbox');
+showTab(['inbox', 'boards', 'log', 'send', 'outbox', 'station'].includes(startTab) ? startTab : 'inbox');

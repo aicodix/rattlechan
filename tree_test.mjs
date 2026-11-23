@@ -7,7 +7,7 @@ import { posts, conversations, boards } from './tree.js';
 import { openStation } from './station.js';
 import { memoryBackend, openStore } from './storage.js';
 import { loadCrypto } from './crypto.js';
-import { compose } from './sender.js';
+import { compose, bundled } from './sender.js';
 import { smallestText } from './encodings.js';
 import * as R from './records.js';
 
@@ -112,6 +112,28 @@ check('boards: direct ones not on a board', b.some((x) => x.conversations.includ
 	await S2.receive(topic, { arrival: 2 });
 	const l2 = conversations(S2.entries());
 	check('then one conversation of two', l2.length === 1 && l2[0].posts.length, 2);
+}
+
+// collected posts of one key, bundled in one Signed record: each where it
+// would be alone, the call sign learned from the From in front of them
+{
+	const S3 = await openStation({ store: await openStore(memoryBackend()), crypto: C });
+	const posts = [
+		{ kind: 'topic', subject: 'Board', text: 'to everyone', timestamp: 10 },
+		{ kind: 'topic', subject: 'Club', text: 'to the club', to: { group: 'club' }, timestamp: 11 },
+		{ kind: 'topic', subject: 'Direct', text: 'to me', to: { key: C.fingerprint(me) }, timestamp: 12 },
+	];
+	await S3.receive(R.payload([bundled({ posts, callSign: 'OK1XYZ', sign: sign(anna) }), bundled({ posts: [{ kind: 'topic', subject: 'Other', text: 'jan too', timestamp: 13 }], sign: sign(jan) })]), { arrival: 5 });
+	const l3 = conversations(S3.entries(), mine);
+	const by = (subj) => l3.find((c) => R.decodeText(c.root.node.subject) === subj);
+	check('bundle: all four posts', l3.length, 4);
+	check('bundle: on everyone', by('Board').place.board, 'everyone');
+	check('bundle: on the club board', by('Club').place.board, hex(R.textUTF8('club')));
+	check('bundle: direct, in my inbox', by('Direct').inbox, 'key');
+	check('bundle: the other key\'s post', by('Other').root.key, keyOf(jan));
+	check('bundle: the call sign learned', S3.keyInfo(keyOf(anna)).callSign, 'OK1XYZ');
+	const alone = R.parse(compose({ ...posts[0], sign: sign(anna) }), { verify: C.verify })[0].children[0];
+	check('bundle: the same ID as alone', by('Board').root.id, hex(alone.id));
 }
 
 console.log(failed ? `${failed} of ${checks} checks failed` : `all ${checks} checks passed`);

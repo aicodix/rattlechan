@@ -132,6 +132,10 @@ nav button {
 	color: var(--dim);
 	font: inherit;
 	font-weight: 600;
+	/* six tabs share a phone's width */
+	font-size: min(15px, 3.9vw);
+	padding: 0 2px;
+	min-width: 0;
 }
 
 nav button[aria-selected="true"] { color: var(--accent); box-shadow: inset 0 3px var(--accent); }
@@ -322,6 +326,12 @@ a { color: var(--accent); }
 .row-card .dim, .row-card .ok, .row-card .warn { font-size: 14px; }
 .row-text { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; flex: 1; }
 .faces { display: flex; flex-wrap: wrap; gap: 4px; }
+#outbox-groups { display: flex; flex-direction: column; gap: 12px; margin-bottom: 12px; }
+#outbox-groups .key-card { margin: 0; }
+.outbox-post { display: flex; flex-direction: column; gap: 4px; border-top: 1px solid var(--line); padding-top: 8px; margin-top: 8px; }
+.outbox-post strong { overflow-wrap: anywhere; }
+.outbox-post .dim { font-size: 14px; }
+.outbox-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .thread-bar { margin: 4px 0 8px; }
 .thread-subject { overflow-wrap: anywhere; }
 .tree-node { margin: 0; }

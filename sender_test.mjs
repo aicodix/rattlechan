@@ -3,7 +3,7 @@
 // ROBUSTO decoder and reassembled with HYDRA.
 
 import { readFile } from 'node:fs/promises';
-import { compose, composeAvatar, fill, pack, frameCapacity, split, chain, pick, secondsFor, airtime, needs, THRESHOLDS, SECONDS_DEFAULT, SNR_DEFAULT } from './sender.js';
+import { compose, composeAvatar, bundled, fill, pack, frameCapacity, split, chain, pick, secondsFor, airtime, needs, THRESHOLDS, SECONDS_DEFAULT, SNR_DEFAULT } from './sender.js';
 import { loadEncoder, loadDecoder } from './robusto.js';
 import { loadHydra, Reassembler } from './hydra.js';
 import { loadCrypto } from './crypto.js';
@@ -98,6 +98,30 @@ check('message: From-Call', p[0].prefixes[0].handle, 'DL1ABC');
 		threw = true;
 	}
 	check('avatar: needs a key', threw, true);
+	// collected posts of one key in one Signed record, From once
+	{
+		const posts = [
+			{ kind: 'topic', subject: 'One', text: 'first', timestamp: 1763700001 },
+			{ kind: 'topic', subject: 'Two', text: 'second', to: { call: 'OK1ABC' }, timestamp: 1763700002 },
+			{ kind: 'reply', parent, text: 'third', timestamp: 1763700003 },
+		];
+		const b = R.parse(R.payload([bundled({ posts, callSign: 'DL1ABC', name: 'Anna', avatar: webp, sign })]), { verify: C.verify });
+		check('bundle: one Signed record', b.length === 1 && b[0].verified, true);
+		const top = b[0].children;
+		check('bundle: From once, in front of a Bundle', top.length === 1 && top[0].type === R.T.BUNDLE && top[0].prefixes.map((x) => x.name).join(), 'FROM_CALL,FROM_NAME');
+		const kids = top[0].children;
+		check('bundle: posts and the avatar', kids.map((n) => n.name).join(), 'TOPIC,TOPIC,REPLY,AVATAR');
+		check('bundle: the To stays on its Topic', kids[1].prefixes.map((x) => x.name).join(), 'TO_CALL');
+		for (const [i, p] of posts.entries()) {
+			const alone = R.parse(compose({ ...p, sign }), { verify: C.verify })[0].children[0];
+			check(`bundle: post ${i + 1} has its ID from alone`, hex(kids[i].id), hex(alone.id));
+		}
+		const one = R.parse(R.payload([bundled({ posts: posts.slice(0, 1), callSign: 'DL1ABC', sign })]), { verify: C.verify });
+		check('bundle of one: no Bundle record', one[0].children.map((n) => n.name).join(), 'TOPIC');
+		check('bundle of one: From on the post', one[0].children[0].prefixes.length, 1);
+		const plain = R.parse(R.payload([bundled({ posts: posts.slice(0, 2), sign })]), { verify: C.verify });
+		check('bundle without From: no Bundle record needed', plain[0].children.map((n) => n.name).join(), 'TOPIC,TOPIC');
+	}
 }
 
 // addressed Topics: From before To, as the ordering rule asks
