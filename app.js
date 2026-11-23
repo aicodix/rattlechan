@@ -1361,55 +1361,72 @@ function describeFile(a) {
 	return `${a.type || 'a file of unknown type'}, ${size}`;
 }
 
-// A still picture made smaller to save airtime: at most side pixels on
-// its long side, as a JPEG of quality 0.7. Halving first keeps it sharp;
-// a white background replaces transparency. Drawing it anew leaves the
-// camera's metadata (and any GPS position in it) behind.
-const SHRINK_SIDES = [320, 640, 1280];
+// A still picture made smaller to save airtime: width and height halved
+// until it has at most a budget of pixels, as in Assempix, then a JPEG of
+// quality 0.7, a white background replacing transparency. Halving keeps
+// it sharp. Drawing it anew leaves the camera's metadata (and any GPS
+// position in it) behind.
+const BUDGETS = [14, 15, 16, 17, 18, 19, 20].map((b) => 1 << b);
 // what a larger still picture is shrunk to when attached
-const SHRINK_DEFAULT = 640;
+const BUDGET_DEFAULT = 1 << 18;
+const pixelCount = (n) => n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)}M` : `${Math.round(n / 1024)}K`;
 
-async function shrink(bytes, type, side) {
+// width and height halved until they fit the budget
+function halved(width, height, budget) {
+	while (width * height > budget) {
+		width = Math.floor(width / 2);
+		height = Math.floor(height / 2);
+	}
+	return [Math.max(1, width), Math.max(1, height)];
+}
+
+async function shrink(bytes, type, budget) {
 	const img = await createImageBitmap(new Blob([bytes], { type }));
-	const scale = Math.min(1, side / Math.max(img.width, img.height));
-	const W = Math.max(1, Math.round(img.width * scale)), H = Math.max(1, Math.round(img.height * scale));
+	const [W, H] = halved(img.width, img.height, budget);
 	const canvas = (w, h) => Object.assign(document.createElement('canvas'), { width: w, height: h });
-	let src = img, w = img.width, h = img.height;
-	while (w / 2 >= W && h / 2 >= H) {
-		const half = canvas(Math.round(w / 2), Math.round(h / 2));
+	let src = img;
+	for (let w = img.width, h = img.height; w * h > budget;) {
+		w = Math.floor(w / 2);
+		h = Math.floor(h / 2);
+		const half = canvas(Math.max(1, w), Math.max(1, h));
 		half.getContext('2d').drawImage(src, 0, 0, half.width, half.height);
 		src = half;
-		w = half.width;
-		h = half.height;
 	}
 	const out = canvas(W, H);
 	const ctx = out.getContext('2d');
 	ctx.fillStyle = '#fff';
 	ctx.fillRect(0, 0, W, H);
-	ctx.imageSmoothingQuality = 'high';
-	ctx.drawImage(src, 0, 0, W, H);
+	ctx.drawImage(src, 0, 0);
 	img.close();
 	const blob = await new Promise((resolve) => out.toBlob(resolve, 'image/jpeg', 0.7));
 	return new Uint8Array(await blob.arrayBuffer());
 }
 
-// the size picker of a still picture larger than the smallest size
+// the size picker of a still picture with more pixels than the smallest
+// budget: each size it can be halved to once, with its number of pixels,
+// then the original
 function shrinkPicker(a) {
 	const pic = pictureInfo(a.original.bytes);
 	if (!pic || pic.animated)
 		return null;
-	const sides = SHRINK_SIDES.filter((s) => s < Math.max(pic.width, pic.height));
-	if (!sides.length)
+	const sizes = new Map();
+	for (const b of BUDGETS.filter((b) => b < pic.width * pic.height))
+		sizes.set(halved(pic.width, pic.height, b).join('x'), b);
+	if (!sizes.size)
 		return null;
-	const select = view.el('select', ...sides.map((s) => view.el('option', `${s} pixels, JPEG`)), view.el('option', `original, ${pic.width}x${pic.height}`));
-	[...select.options].forEach((o, i) => o.value = sides[i] ?? '');
-	select.value = a.side ?? '';
+	const select = view.el('select', ...[...sizes].map(([size, b]) => {
+		const [w, h] = size.split('x');
+		const o = view.el('option', `${size}, ${pixelCount(w * h)} pixels`);
+		o.value = b;
+		return o;
+	}), view.el('option', `original, ${pic.width}x${pic.height}, ${pixelCount(pic.width * pic.height)} pixels`));
+	select.options[select.options.length - 1].value = '';
+	select.value = a.budget ? sizes.get(halved(pic.width, pic.height, a.budget).join('x')) : '';
 	select.onchange = async () => {
 		select.disabled = true;
 		try {
 			await resize(a, Number(select.value) || null);
 		} catch (err) {
-			select.value = a.side ?? '';
 			$('attach-info').textContent = `Can't shrink it: ${err.message}`;
 		}
 		showAttachments();
@@ -1417,9 +1434,9 @@ function shrinkPicker(a) {
 	return view.el('label.field', 'Size ', select);
 }
 
-// an attachment at side pixels on its long side, or the original with null
-async function resize(a, side) {
-	Object.assign(a, side ? { bytes: await shrink(a.original.bytes, a.original.type, side), type: 'image/jpeg', name: a.original.name && fileName(a.original.name.replace(/\.[a-z0-9]+$/, '') + '.jpg') } : a.original, { side });
+// an attachment halved to a budget of pixels, or the original with null
+async function resize(a, budget) {
+	Object.assign(a, budget ? { bytes: await shrink(a.original.bytes, a.original.type, budget), type: 'image/jpeg', name: a.original.name && fileName(a.original.name.replace(/\.[a-z0-9]+$/, '') + '.jpg') } : a.original, { budget });
 }
 
 function showAttachments() {
@@ -1460,12 +1477,12 @@ $('attach').onchange = async () => {
 			break;
 		try {
 			const file = { bytes: new Uint8Array(await f.arrayBuffer()), type: f.type, name: fileName(f.name) };
-			const a = { ...file, original: file, side: null };
-			// a still picture larger than SHRINK_DEFAULT is shrunk to it
-			// right away; the Size picker brings the original back
+			const a = { ...file, original: file, budget: null };
+			// a still picture of more than BUDGET_DEFAULT pixels is halved
+			// to fit it right away; the Size picker brings the original back
 			const pic = pictureInfo(file.bytes);
-			if (pic && !pic.animated && Math.max(pic.width, pic.height) > SHRINK_DEFAULT)
-				await resize(a, SHRINK_DEFAULT).catch(() => {});
+			if (pic && !pic.animated && pic.width * pic.height > BUDGET_DEFAULT)
+				await resize(a, BUDGET_DEFAULT).catch(() => {});
 			attachments.push(a);
 		} catch (err) {
 			console.log('attach', f.name, err.message);
