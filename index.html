@@ -31,12 +31,6 @@
 
 	<section id="boards" class="tab" hidden></section>
 
-	<section id="log" class="tab" hidden>
-		<p id="log-empty" class="dim">Nothing received yet. Start listening in Station.</p>
-		<div id="entries"></div>
-		<p id="log-more" class="dim" hidden></p>
-	</section>
-
 	<section id="send" class="tab" hidden>
 		<div id="signing">
 			<p id="no-keys" class="warn" hidden>Every post is signed: add a key in Station first.</p>
@@ -200,13 +194,19 @@
 			</div>
 			<p id="delete-result" class="dim"></p>
 		</div>
+
+		<div id="log">
+			<h2>Log</h2>
+			<p id="log-empty" class="dim">Nothing received yet. Start listening under Receiver.</p>
+			<div id="entries"></div>
+			<p id="log-more" class="dim" hidden></p>
+		</div>
 	</section>
 </main>
 
 <nav role="tablist">
 	<button role="tab" data-tab="inbox" aria-selected="true">Inbox</button>
 	<button role="tab" data-tab="boards" aria-selected="false">Boards</button>
-	<button role="tab" data-tab="log" aria-selected="false">Log</button>
 	<button role="tab" data-tab="send" aria-selected="false">Compose</button>
 	<button role="tab" data-tab="outbox" aria-selected="false">Outbox</button>
 	<button role="tab" data-tab="station" aria-selected="false">Station</button>

@@ -80,6 +80,9 @@ body {
 	padding-bottom: calc(56px + env(safe-area-inset-bottom));
 }
 
+/* scrolled to after decoding a recording, clear of the sticky header */
+#log { scroll-margin-top: calc(64px + env(safe-area-inset-top)); }
+
 header {
 	position: sticky;
 	top: 0;

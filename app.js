@@ -498,7 +498,7 @@ $('recording').onchange = async () => {
 		await enqueue(events);
 		const n = events.filter((e) => e.type === 'frame').length;
 		$('receiver').textContent = `${file.name}: ${n} frame${n === 1 ? '' : 's'}.`;
-		showTab('log');
+		$('log').scrollIntoView();
 	} catch (err) {
 		$('receiver').textContent = `Can't decode ${file.name}: ${err.message}`;
 	}
@@ -2002,4 +2002,4 @@ setKind('topic');
 setTimeout(() => smallestText('Rattlechan'), 3000);
 
 const startTab = recall('tab');
-showTab(['inbox', 'boards', 'log', 'send', 'outbox', 'station'].includes(startTab) ? startTab : 'inbox');
+showTab(['inbox', 'boards', 'send', 'outbox', 'station'].includes(startTab) ? startTab : 'inbox');
