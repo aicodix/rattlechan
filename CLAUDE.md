@@ -70,4 +70,7 @@ Every module has its <name>_test.mjs; the browser halves are encodings_test.html
 - [ ] Scanning a revocation's QR code into the Hex field, with `BarcodeDetector` where the browser has it.
 - [ ] Boards for group keys: To-Group-Key Topics are left out of the tree until the GUI can show only posts the group key re-signed, `Signed(group key, Signed(member, …))`.
 - [ ] Requests: Request-Post for a Reply whose parent hasn't arrived (the Elsewhere board) and Request-Root for waiting fragment sets, and answering requests at most once in a while.
+- [ ] Position from the phone's GPS (works without internet) on posts and photos, the existing Position record, off by default and switched on per device.
+- [ ] Release on GitHub Pages: a README section for first responders (install in advance while online, add to the Home Screen so iOS keeps the data, export keys), and the first public deploy.
+- [ ] Maybe: preparing a large post (signing and HYDRA encoding, about 9 s for 1 MiB) in a worker; manifest screenshots for a richer install dialog.
 - [ ] Playing Codec2: libcodec2's decoder compiled to WebAssembly in its own LGPL-2.1 repo, loaded as a separate module only when Play is pressed; the encoder later, for voice posts. Save-only until then.
