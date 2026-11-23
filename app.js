@@ -174,14 +174,20 @@ function author(p) {
 	return view.el('span.who', who);
 }
 
-// the latest distinct authors of a board, newest first
+// the latest distinct authors of a board, newest first, those with a
+// trusted avatar ahead of the others
 function recentKeys(conversationList, most = 5) {
 	const last = new Map();
 	for (const c of conversationList)
 		for (const p of c.posts)
 			if (!c.hidden.has(p) && !(last.get(p.key) >= p.arrival))
 				last.set(p.key, p.arrival);
-	return [...last].sort((a, b) => b[1] - a[1]).slice(0, most).map(([k]) => k);
+	const keys = [...last].sort((a, b) => b[1] - a[1]).map(([k]) => k);
+	const shown = (k) => {
+		const info = station.keyInfo(k);
+		return info.trusted && !!info.avatar;
+	};
+	return [...keys.filter(shown), ...keys.filter((k) => !shown(k))].slice(0, most);
 }
 
 function subject(c) {
