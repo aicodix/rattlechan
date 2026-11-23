@@ -137,7 +137,7 @@ export function identicon(key, size = 32) {
 const fromHex = (h) => Uint8Array.from(h.match(/../g), (b) => parseInt(b, 16));
 
 // a trusted key's avatar, or its identicon until there is one
-function face(key, size = 32) {
+export function face(key, size = 32) {
 	const info = station.keyInfo(key);
 	const icon = identicon(fromHex(key), size);
 	if (!info.trusted || !info.avatar)

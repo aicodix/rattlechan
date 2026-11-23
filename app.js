@@ -171,7 +171,17 @@ function author(p) {
 	const info = keyInfo(p.key);
 	const name = info.name && (typeof info.name === 'string' ? info.name : decodeText(info.name));
 	const who = (info.trusted || info.own) && (info.callSign || name) ? [info.callSign, name].filter(Boolean).join(' ') : `fingerprint ${p.key.slice(0, 8)}`;
-	return view.el('span.who', view.identicon(fromHex(p.key), 16), ' ', who);
+	return view.el('span.who', who);
+}
+
+// the latest distinct authors of a board, newest first
+function recentKeys(conversationList, most = 5) {
+	const last = new Map();
+	for (const c of conversationList)
+		for (const p of c.posts)
+			if (!c.hidden.has(p) && !(last.get(p.key) >= p.arrival))
+				last.set(p.key, p.arrival);
+	return [...last].sort((a, b) => b[1] - a[1]).slice(0, most).map(([k]) => k);
 }
 
 function subject(c) {
@@ -183,10 +193,10 @@ function subject(c) {
 function conversationRow(c, open) {
 	const shown = c.posts.length - c.hidden.size;
 	const why = c.inbox && (typeof INBOX_WHY[c.inbox] === 'function' ? INBOX_WHY[c.inbox](c) : INBOX_WHY[c.inbox]);
-	const row = view.el('button.row-card',
+	const row = view.el('button.row-card', view.face(c.root.key), view.el('span.row-text',
 		view.el('strong', subject(c)),
 		view.el('span.dim', author(c.root), ` · ${shown} post${shown === 1 ? '' : 's'}${c.hidden.size ? ` (+${c.hidden.size} from others)` : ''} · ${view.when(c.last)}`),
-		why ? view.el(c.inbox === 'name' || c.inbox === 'call' ? 'span.warn' : 'span.ok', why) : '');
+		why ? view.el(c.inbox === 'name' || c.inbox === 'call' ? 'span.warn' : 'span.ok', why) : ''));
 	row.onclick = open;
 	return row;
 }
@@ -278,8 +288,10 @@ function showReading() {
 	} else {
 		reading.boards.board = null;
 		$('boards').replaceChildren(view.el('h2', 'Boards'), view.el('div.rows', ...all.map((b) => {
-			const row = view.el('button.row-card', view.el('strong', boardName(b)),
-				view.el('span.dim', `${b.conversations.length} conversation${b.conversations.length === 1 ? '' : 's'}${b.last ? ` · ${view.when(b.last)}` : ''}`));
+			const faces = recentKeys(b.conversations);
+			const row = view.el('button.row-card', view.el('span.row-text', view.el('strong', boardName(b)),
+				view.el('span.dim', `${b.conversations.length} conversation${b.conversations.length === 1 ? '' : 's'}${b.last ? ` · ${view.when(b.last)}` : ''}`),
+				faces.length ? view.el('span.faces', ...faces.map((k) => view.face(k))) : ''));
 			row.onclick = () => {
 				reading.boards.board = b.board;
 				showReading();
