@@ -994,7 +994,7 @@ async function avatarDraft(k) {
 	return { payload, o: await own() };
 }
 
-// the key list in Station and the choice in Send
+// the key list in Station and the choice in Compose
 async function fillKeys() {
 	const list = keys ? await keys.list() : [];
 	const shown = (m) => JSON.stringify([...m].sort());
@@ -1751,11 +1751,11 @@ const toBase64 = (b) => {
 	return btoa(s);
 };
 const fromBase64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
-// what the Send tab says waits in the Outbox
+// what the Compose tab says waits in the Outbox
 const waiting = (n) => n ? `Collected. ${n === 1 ? 'One post waits' : `${n} posts wait`} in the Outbox.` : '';
 const setCollected = async (posts) => {
 	await store.putData('outbox', { posts });
-	// a note on the Send tab about what waits stays true once posts are
+	// a note on the Compose tab about what waits stays true once posts are
 	// sent or removed
 	if ($('send-status').textContent.startsWith('Collected.'))
 		$('send-status').textContent = waiting(posts.length);

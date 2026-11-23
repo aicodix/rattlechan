@@ -124,7 +124,8 @@ nav {
 }
 
 nav button {
-	flex: 1;
+	/* as wide as its label, the room left shared out evenly */
+	flex: auto;
 	height: 56px;
 	border: 0;
 	border-radius: 0;
