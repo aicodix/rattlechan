@@ -1361,6 +1361,61 @@ function describeFile(a) {
 	return `${a.type || 'a file of unknown type'}, ${size}`;
 }
 
+// A still picture made smaller to save airtime: at most side pixels on
+// its long side, as a JPEG of quality 0.7. Halving first keeps it sharp;
+// a white background replaces transparency. Drawing it anew leaves the
+// camera's metadata (and any GPS position in it) behind.
+const SHRINK_SIDES = [320, 640, 1280];
+
+async function shrink(bytes, type, side) {
+	const img = await createImageBitmap(new Blob([bytes], { type }));
+	const scale = Math.min(1, side / Math.max(img.width, img.height));
+	const W = Math.max(1, Math.round(img.width * scale)), H = Math.max(1, Math.round(img.height * scale));
+	const canvas = (w, h) => Object.assign(document.createElement('canvas'), { width: w, height: h });
+	let src = img, w = img.width, h = img.height;
+	while (w / 2 >= W && h / 2 >= H) {
+		const half = canvas(Math.round(w / 2), Math.round(h / 2));
+		half.getContext('2d').drawImage(src, 0, 0, half.width, half.height);
+		src = half;
+		w = half.width;
+		h = half.height;
+	}
+	const out = canvas(W, H);
+	const ctx = out.getContext('2d');
+	ctx.fillStyle = '#fff';
+	ctx.fillRect(0, 0, W, H);
+	ctx.imageSmoothingQuality = 'high';
+	ctx.drawImage(src, 0, 0, W, H);
+	img.close();
+	const blob = await new Promise((resolve) => out.toBlob(resolve, 'image/jpeg', 0.7));
+	return new Uint8Array(await blob.arrayBuffer());
+}
+
+// the size picker of a still picture larger than the smallest size
+function shrinkPicker(a) {
+	const pic = pictureInfo(a.original.bytes);
+	if (!pic || pic.animated)
+		return null;
+	const sides = SHRINK_SIDES.filter((s) => s < Math.max(pic.width, pic.height));
+	if (!sides.length)
+		return null;
+	const select = view.el('select', view.el('option', 'original'), ...sides.map((s) => view.el('option', `${s} pixels, JPEG`)));
+	[...select.options].forEach((o, i) => o.value = i ? sides[i - 1] : '');
+	select.value = a.side ?? '';
+	select.onchange = async () => {
+		select.disabled = true;
+		const side = Number(select.value) || null;
+		try {
+			Object.assign(a, side ? { bytes: await shrink(a.original.bytes, a.original.type, side), type: 'image/jpeg', name: a.original.name && fileName(a.original.name.replace(/\.[a-z0-9]+$/, '') + '.jpg') } : a.original, { side });
+		} catch (err) {
+			select.value = a.side ?? '';
+			$('attach-info').textContent = `Can't shrink it: ${err.message}`;
+		}
+		showAttachments();
+	};
+	return view.el('label.field', 'Size ', select);
+}
+
 function showAttachments() {
 	const total = attachments.reduce((n, a) => n + a.bytes.length, 0);
 	$('attachments').replaceChildren(...attachments.map((a) => {
@@ -1369,7 +1424,7 @@ function showAttachments() {
 			attachments = attachments.filter((x) => x !== a);
 			showAttachments();
 		};
-		const box = view.el('div.attachment', view.el('span.what', describeFile(a)));
+		const box = view.el('div.attachment', view.el('span.what', describeFile(a)), shrinkPicker(a) ?? '');
 		// only a MIME escape carries a name, which costs its bytes
 		if (!webpSize(a.bytes) && !isCodec2File(a.bytes)) {
 			const input = view.el('input');
@@ -1398,7 +1453,8 @@ $('attach').onchange = async () => {
 		if (attachments.length >= FILES_MAX)
 			break;
 		try {
-			attachments.push({ bytes: new Uint8Array(await f.arrayBuffer()), type: f.type, name: fileName(f.name) });
+			const file = { bytes: new Uint8Array(await f.arrayBuffer()), type: f.type, name: fileName(f.name) };
+			attachments.push({ ...file, original: file, side: null });
 		} catch (err) {
 			console.log('attach', f.name, err.message);
 		}
