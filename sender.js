@@ -28,6 +28,8 @@ export const needs = (mode) => THRESHOLDS[mode & 31];
 //   kind 'topic'    subject and text
 //   kind 'reply'    parent (32-byte post ID) and text
 //   kind 'message'  text alone, a bare message
+// parts, records made by attachment(), follow the text; with them the text
+// may be left out.
 // Each carries From-Call and From-Name when given; a Reply goes where its
 // parent is, so it never carries To prefixes (SPEC.md). sign(...records), as keys.js gives it,
 // wraps the records in one Signed record; without it the post is unsigned,
@@ -39,8 +41,8 @@ export const needs = (mode) => THRESHOLDS[mode & 31];
 //
 // avatar, WebP bytes, goes beside the post as a bare Avatar record, inside
 // the same Signed record, so the post and its ID stay as they are.
-export function compose({ kind, subject = '', text = '', parent = null, callSign = null, name = null, to = null, timestamp = Math.floor(Date.now() / 1000), sign = null, avatar = null }) {
-	const records = post({ kind, subject, text, parent, callSign, name, to, timestamp });
+export function compose({ kind, subject = '', text = '', parent = null, callSign = null, name = null, to = null, timestamp = Math.floor(Date.now() / 1000), sign = null, avatar = null, parts = [] }) {
+	const records = post({ kind, subject, text, parent, callSign, name, to, timestamp, parts });
 	if (avatar)
 		records.push(R.avatar(avatar));
 	return R.payload(sign ? [sign(...records)] : records);
@@ -88,6 +90,47 @@ export function bundled({ posts, callSign = null, name = null, avatar = null, si
 	return sign(...from, ...(from.length && children > 1 ? [R.bundle(...inner)] : inner));
 }
 
+// Files attached to a post (SPEC.md, Client policy: up to four, at most
+// 1 MiB in all)
+export const FILES_MAX = 4;
+export const FILES_MAX_BYTES = 1 << 20;
+
+// A file as a post part, by its content: a WebP file as WebP, a .c2 file
+// as Codec2 (its 7-byte header gone, the mode byte kept), anything else as
+// a MIME escape with its type and file name, both made valid
+export function attachment(bytes, { type = '', name = '' } = {}) {
+	if (R.webpSize(bytes))
+		return R.webp(bytes);
+	if (isCodec2File(bytes))
+		return R.codec2(bytes[5], bytes.subarray(7));
+	return R.mime(mimeType(type), fileName(name), bytes);
+}
+
+// magic C0 DE C2, version, mode, flags
+export const isCodec2File = (b) => b.length >= 7 && b[0] === 0xC0 && b[1] === 0xDE && b[2] === 0xC2;
+
+// a content type as a MIME escape takes it: type/subtype only, lowercase,
+// otherwise application/octet-stream
+export function mimeType(type) {
+	const t = type.split(';')[0].trim().toLowerCase();
+	return /^[a-z0-9!#$&\-^_.+]{1,127}\/[a-z0-9!#$&\-^_.+]{1,127}$/.test(t) ? t : 'application/octet-stream';
+}
+
+// a file name as a MIME escape takes it: lowercase a-z, digits, ".", "-"
+// and "_", at most 64 characters, not starting with "." and without "..";
+// accents dropped, spaces and anything else made "-", the extension kept
+// when it has to be shortened; empty if nothing is left
+export function fileName(name) {
+	let n = name.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/ß/g, 'ss').toLowerCase()
+		.replace(/[^a-z0-9._-]+/g, '-').replace(/-*\.[-.]*/g, '.').replace(/^[.-]+/, '').replace(/[.-]+$/, '');
+	if (n.length > 64) {
+		const dot = n.lastIndexOf('.');
+		const ext = dot > 0 && n.length - dot <= 16 ? n.slice(dot) : '';
+		n = n.slice(0, 64 - ext.length).replace(/[.-]+$/, '') + ext;
+	}
+	return n;
+}
+
 function address(to) {
 	if (!to)
 		return [];
@@ -102,9 +145,11 @@ function address(to) {
 	throw new RangeError('an address is a call sign, a name, a key or a group name');
 }
 
-function post({ kind, subject, text, parent, callSign, name, to, timestamp }) {
-	if (!text)
-		throw new RangeError('a post needs text');
+function post({ kind, subject, text, parent, callSign, name, to, timestamp, parts = [] }) {
+	if (!text && !parts.length)
+		throw new RangeError('a post needs text or a file');
+	// the text first, then the files
+	const body = [...(text ? [smallestText(text)] : []), ...parts];
 	const from = [];
 	if (callSign)
 		from.push(R.fromCall(callSign));
@@ -114,15 +159,15 @@ function post({ kind, subject, text, parent, callSign, name, to, timestamp }) {
 	case 'topic':
 		if (!subject)
 			throw new RangeError('a Topic needs a subject');
-		return [...from, ...address(to), R.topic(timestamp, smallestText(subject), smallestText(text))];
+		return [...from, ...address(to), R.topic(timestamp, smallestText(subject), ...body)];
 	case 'reply':
 		if (to)
 			throw new RangeError('a Reply goes where its parent is, never to an address');
 		if (!(parent instanceof Uint8Array) || parent.length !== 32)
 			throw new RangeError('a Reply needs the 32-byte ID of its parent');
-		return [...from, R.reply(timestamp, parent, smallestText(text))];
+		return [...from, R.reply(timestamp, parent, ...body)];
 	case 'message':
-		return [...from, ...address(to), smallestText(text)];
+		return [...from, ...address(to), ...body];
 	}
 	throw new RangeError(`unknown kind of post: ${kind}`);
 }

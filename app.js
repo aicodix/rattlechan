@@ -8,9 +8,9 @@ import { loadCrypto } from './crypto.js';
 import { loadHydra } from './hydra.js';
 import { openStation } from './station.js';
 import { listen, inputs, decodeRecording } from './receiver.js';
-import { compose, composeAvatar, bundled, fill, pack, split, chain, pick, secondsFor, airtime, needs, SECONDS_DEFAULT, SNR_DEFAULT, REDUNDANCY_DEFAULT } from './sender.js';
+import { compose, composeAvatar, bundled, attachment, isCodec2File, fileName, FILES_MAX, FILES_MAX_BYTES, fill, pack, split, chain, pick, secondsFor, airtime, needs, SECONDS_DEFAULT, SNR_DEFAULT, REDUNDANCY_DEFAULT } from './sender.js';
 import { output, encoderFor, play, LEVEL_DEFAULT, LEVEL_MIN } from './transmitter.js';
-import { encodeCall, decodeText, fromCall, fromName, textUTF8, payload as framePayload, T } from './records.js';
+import { encodeCall, decodeText, fromCall, fromName, textUTF8, webpSize, payload as framePayload, T } from './records.js';
 import { smallestText } from './encodings.js';
 import { openKeys } from './keys.js';
 import { conversations, boards } from './tree.js';
@@ -1071,6 +1071,7 @@ function setKind(k) {
 	$('subject-field').hidden = k !== 'topic';
 	$('to-field').hidden = k !== 'topic';
 	$('text-field').hidden = k === 'hex';
+	$('files-field').hidden = k === 'hex';
 	$('hex-hint').hidden = k !== 'hex';
 	$('hex-field').hidden = k !== 'hex';
 	$('hex-preview').hidden = k !== 'hex';
@@ -1181,9 +1182,12 @@ async function draft() {
 	if (k.avatar)
 		$('include-avatar-size').textContent = view.bytes(k.avatar.length);
 	const withAvatar = !!k.avatar && $('include-avatar').checked;
-	const text = $('text').value;
-	if (!text.trim())
-		return { why: 'Write something.' };
+	const text = $('text').value.trim() ? $('text').value : '';
+	if (!text && !attachments.length)
+		return { why: 'Write something or attach a file.' };
+	const bytesAttached = attachments.reduce((n, a) => n + a.bytes.length, 0);
+	if (attachments.length > FILES_MAX || bytesAttached > FILES_MAX_BYTES)
+		return { why: `At most ${FILES_MAX} files and ${view.bytes(FILES_MAX_BYTES)} in all per post.` };
 	if (kind === 'topic' && !$('subject').value.trim())
 		return { why: 'A topic needs a subject.' };
 	if (kind === 'reply' && !replyTo)
@@ -1191,7 +1195,8 @@ async function draft() {
 	const where = kind === 'topic' ? address() : { to: null };
 	if (where.why)
 		return { why: where.why };
-	const post = { kind, subject: kind === 'topic' ? $('subject').value.trim() : '', text, parent: kind === 'reply' ? replyTo : null, to: where.to, timestamp: Math.floor(Date.now() / 1000) };
+	const parts = attachments.map((a) => attachment(a.bytes, { type: a.type, name: a.name }));
+	const post = { kind, subject: kind === 'topic' ? $('subject').value.trim() : '', text, parent: kind === 'reply' ? replyTo : null, to: where.to, timestamp: Math.floor(Date.now() / 1000), parts };
 	const payload = compose({
 		...post,
 		// the key's call sign and name only when asked for: they cost bytes,
@@ -1325,6 +1330,72 @@ $('include-call').onchange = estimate;
 $('include-name').onchange = estimate;
 $('include-avatar').onchange = estimate;
 $('subject').oninput = typed;
+
+// Files attached to the post: WebP and Codec2 (.c2) files go as their own
+// types, anything else as a MIME escape with its type and a file name the
+// operator can change or clear
+let attachments = [];
+
+const CODEC2_MODES = { 0: '3200', 1: '2400', 2: '1600', 3: '1400', 4: '1300', 5: '1200', 8: '700C' };
+
+function describeFile(a) {
+	const size = view.bytes(a.bytes.length);
+	const pic = webpSize(a.bytes);
+	if (pic)
+		return `WebP picture, ${pic.width}x${pic.height}, ${size}`;
+	if (isCodec2File(a.bytes))
+		return `Codec2 voice, mode ${CODEC2_MODES[a.bytes[5]] ?? a.bytes[5]}, ${view.bytes(a.bytes.length - 7)} of voice`;
+	return `${a.type || 'a file of unknown type'}, ${size}`;
+}
+
+function showAttachments() {
+	const total = attachments.reduce((n, a) => n + a.bytes.length, 0);
+	$('attachments').replaceChildren(...attachments.map((a) => {
+		const remove = view.el('button.small', 'Remove');
+		remove.onclick = () => {
+			attachments = attachments.filter((x) => x !== a);
+			showAttachments();
+		};
+		const box = view.el('div.attachment', view.el('span.what', describeFile(a)));
+		// only a MIME escape carries a name, which costs its bytes
+		if (!webpSize(a.bytes) && !isCodec2File(a.bytes)) {
+			const input = view.el('input');
+			input.value = a.name;
+			input.placeholder = 'none: named by its hash';
+			input.autocomplete = 'off';
+			input.spellcheck = false;
+			input.onchange = () => {
+				a.name = fileName(input.value);
+				input.value = a.name;
+				estimate();
+			};
+			box.append(view.el('label.field', 'File name ', input));
+		}
+		box.append(view.el('div.row', remove));
+		return box;
+	}));
+	$('attach-info').textContent = attachments.length ? `${attachments.length} of at most ${FILES_MAX} files, ${view.bytes(total)} of ${view.bytes(FILES_MAX_BYTES)}.` : '';
+	$('attach').closest('label').hidden = attachments.length >= FILES_MAX;
+	estimate();
+}
+
+$('attach').onchange = async () => {
+	const files = [...$('attach').files];
+	for (const f of files) {
+		if (attachments.length >= FILES_MAX)
+			break;
+		try {
+			attachments.push({ bytes: new Uint8Array(await f.arrayBuffer()), type: f.type, name: fileName(f.name) });
+		} catch (err) {
+			console.log('attach', f.name, err.message);
+		}
+	}
+	// the same files can be chosen again
+	$('attach').value = '';
+	showAttachments();
+	if (files.length > FILES_MAX)
+		$('attach-info').textContent += ` Only the first ${FILES_MAX} were taken.`;
+};
 $('text').oninput = typed;
 $('hex').oninput = typed;
 
@@ -1503,7 +1574,7 @@ $('test-output').onclick = async () => {
 
 // the post can't change while its fragments go out one at a time
 function lockSend(on) {
-	for (const e of document.querySelectorAll('#send input, #send textarea, #send select, #send .segmented button, #collect-button, #outbox input, #outbox .remove'))
+	for (const e of document.querySelectorAll('#send input, #send textarea, #send select, #send .segmented button, #attachments button, #collect-button, #outbox input, #outbox .remove'))
 		e.disabled = on;
 }
 
@@ -1536,6 +1607,8 @@ $('send-button').onclick = async () => {
 
 // the form empty again for the next post
 function clearForm() {
+	attachments = [];
+	showAttachments();
 	$('text').value = '';
 	$('subject').value = '';
 	$('hex').value = '';
@@ -1555,9 +1628,18 @@ function clearForm() {
 // when it was collected, so its post ID is known and stays; they are
 // signed when sent, one Signed record per key with its call sign, name
 // and avatar once in front of them (sender.js, bundled()). Kept in
-// data/outbox.json as { posts: [{ key, kind, subject, text, parent, to,
-// timestamp, collected }] }, parent and a To fingerprint in hex.
+// data/outbox.json as { posts: [{ key, kind, subject, text, parts, parent,
+// to, timestamp, collected }] }, parent and a To fingerprint in hex, the
+// attached files as their records in base64.
 const collected = async () => (await store.getData('outbox'))?.posts ?? [];
+// attached files as the records they become, in base64
+const toBase64 = (b) => {
+	let s = '';
+	for (let i = 0; i < b.length; i += 32768)
+		s += String.fromCharCode(...b.subarray(i, i + 32768));
+	return btoa(s);
+};
+const fromBase64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 const setCollected = (posts) => store.putData('outbox', { posts });
 // whether each key's call sign, name and avatar go along, off again after
 // each sent bundle
@@ -1571,7 +1653,7 @@ $('collect-button').onclick = async () => {
 			throw new Error(d.why);
 		const p = d.post;
 		const to = p.to?.key ? { key: view.hex(p.to.key) } : p.to;
-		const posts = [...await collected(), { key: d.key, kind: p.kind, subject: p.subject, text: p.text, parent: p.parent && view.hex(p.parent), to, timestamp: p.timestamp, collected: Date.now() }];
+		const posts = [...await collected(), { key: d.key, kind: p.kind, subject: p.subject, text: p.text, parts: p.parts.map(toBase64), parent: p.parent && view.hex(p.parent), to, timestamp: p.timestamp, collected: Date.now() }];
 		await setCollected(posts);
 		clearForm();
 		$('send-status').textContent = `Collected. ${posts.length === 1 ? 'One post waits' : `${posts.length} posts wait`} in the Outbox.`;
@@ -1650,7 +1732,8 @@ async function showOutbox() {
 			out.push(view.el('div.outbox-post',
 				p.kind === 'topic' ? typedText('strong', p.subject) : view.el('strong', 'Reply'),
 				view.el('span.dim', ...where, ` · collected ${view.when(p.collected)}`),
-				typedText('p.outbox-text', p.text.length > 300 ? `${p.text.slice(0, 300)} …` : p.text),
+				p.text ? typedText('p.outbox-text', p.text.length > 300 ? `${p.text.slice(0, 300)} …` : p.text) : '',
+				p.parts?.length ? view.el('span.dim', `${p.parts.length === 1 ? 'one file' : `${p.parts.length} files`}, ${view.bytes(p.parts.reduce((n, x) => n + fromBase64(x).length, 0))}`) : '',
 				view.el('div.row', remove)));
 		}
 		return view.el('div.key-card', ...out);
@@ -1681,6 +1764,7 @@ async function outboxDraft() {
 		records.push(bundled({
 			posts: mine.map((p) => ({
 				kind: p.kind, subject: p.subject, text: p.text, timestamp: p.timestamp,
+				parts: (p.parts ?? []).map(fromBase64),
 				parent: p.parent && fromHex(p.parent),
 				to: p.to?.key ? { key: fromHex(p.to.key) } : p.to,
 			})),

@@ -68,6 +68,11 @@
 		</div>
 		<label class="field" id="subject-field">Subject <input id="subject" autocomplete="off" dir="auto"></label>
 		<label class="field" id="text-field">Text <textarea id="text" rows="6" dir="auto"></textarea></label>
+		<div id="files-field">
+			<label class="file">Attach files … <input id="attach" type="file" multiple></label>
+			<div id="attachments"></div>
+			<p id="attach-info" class="dim"></p>
+		</div>
 		<p id="hex-hint" class="dim" hidden>A payload sent as it is, in one frame, made longer if it has to be: a printed revocation, for instance. Spaces and line breaks don't count.</p>
 		<label class="field" id="hex-field" hidden>Payload in hex <textarea id="hex" rows="6" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea></label>
 		<div id="hex-preview" hidden></div>

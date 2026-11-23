@@ -3,7 +3,7 @@
 // ROBUSTO decoder and reassembled with HYDRA.
 
 import { readFile } from 'node:fs/promises';
-import { compose, composeAvatar, bundled, fill, pack, frameCapacity, split, chain, pick, secondsFor, airtime, needs, THRESHOLDS, SECONDS_DEFAULT, SNR_DEFAULT } from './sender.js';
+import { compose, composeAvatar, bundled, attachment, fileName, mimeType, fill, pack, frameCapacity, split, chain, pick, secondsFor, airtime, needs, THRESHOLDS, SECONDS_DEFAULT, SNR_DEFAULT } from './sender.js';
 import { loadEncoder, loadDecoder } from './robusto.js';
 import { loadHydra, Reassembler } from './hydra.js';
 import { loadCrypto } from './crypto.js';
@@ -98,6 +98,35 @@ check('message: From-Call', p[0].prefixes[0].handle, 'DL1ABC');
 		threw = true;
 	}
 	check('avatar: needs a key', threw, true);
+	// files attached to a post, by their content
+	{
+		const c2 = Uint8Array.from([0xC0, 0xDE, 0xC2, 0, 8, 8, 0, 1, 2, 3, 4, 5, 6, 7]);
+		const pdf = new TextEncoder().encode('%PDF-1.4 tiny');
+		const parts = [attachment(webp), attachment(c2), attachment(pdf, { type: 'application/pdf', name: 'Bericht über Fußball (final).PDF' }), attachment(pdf, { type: 'what ever', name: '...' })];
+		const q = R.parse(compose({ kind: 'reply', parent, text: 'files', parts, sign }), { verify: C.verify });
+		const r = q[0].children[0];
+		check('files: verifies', q[0].verified, true);
+		check('files: text first, then the parts', r.parts.map((n) => n.name).join(), 'TEXT_UTF8,WEBP,CODEC2,MIME,MIME');
+		check('files: the WebP as it is', r.parts[1].body.length, webp.length);
+		check('files: Codec2 without its header, its mode kept', r.parts[2].mode === 8 && r.parts[2].body.length, 8);
+		check('files: MIME type', r.parts[3].mime, 'application/pdf');
+		check('files: file name made valid', r.parts[3].fileName, 'bericht-uber-fussball-final.pdf');
+		check('files: content', new TextDecoder().decode(r.parts[3].content), '%PDF-1.4 tiny');
+		check('files: an invalid type', r.parts[4].mime, 'application/octet-stream');
+		check('files: nothing left of a name', r.parts[4].fileName, '');
+		const only = R.parse(compose({ kind: 'topic', subject: 'Photo', parts: [attachment(webp)], sign }), { verify: C.verify });
+		check('files: a Topic without text', only[0].children[0].parts.map((n) => n.name).join(), 'WEBP');
+		let none = false;
+		try {
+			compose({ kind: 'topic', subject: 'Nothing', sign });
+		} catch {
+			none = true;
+		}
+		check('files: neither text nor file', none, true);
+	}
+	check('file name: long, extension kept', fileName('a'.repeat(80) + '.tar.gz'), 'a'.repeat(61) + '.gz');
+	check('file name: leading dots', fileName('..hidden'), 'hidden');
+	check('mime type: parameters dropped', mimeType('Text/Plain; charset=utf-8'), 'text/plain');
 	// collected posts of one key in one Signed record, From once
 	{
 		const posts = [
