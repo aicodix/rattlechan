@@ -56,3 +56,71 @@ export function play(context, samples, level = 0) {
 		},
 	};
 }
+
+// Play parts, an iterable of sample arrays at the output's rate, back to
+// back without a gap, level dB below full scale. Each part is taken only
+// when fewer than two are waiting or those run out within ahead seconds,
+// so a long transmission is never held whole. Returns { done, stop() } like play().
+export const AHEAD = 12;
+
+export function playParts(context, parts, level = 0, { destination = context.destination, ahead = AHEAD } = {}) {
+	const gain = context.createGain();
+	gain.gain.value = 10 ** (Math.min(0, level) / 20);
+	gain.connect(destination);
+	const it = parts[Symbol.iterator]();
+	const live = new Set();
+	// when the next part starts, set once the first is made: making it
+	// takes a moment, and a start in the past would play it late
+	let next = null;
+	let stopped = false, finished = false, ended;
+	const done = new Promise((resolve) => {
+		ended = (complete) => {
+			gain.disconnect();
+			resolve(complete);
+		};
+	});
+	const schedule = () => {
+		while (!stopped && !finished && (live.size < 2 || next - context.currentTime < ahead)) {
+			const r = it.next();
+			if (r.done) {
+				finished = true;
+				break;
+			}
+			const buffer = context.createBuffer(1, r.value.length, context.sampleRate);
+			buffer.copyToChannel(r.value, 0);
+			const source = context.createBufferSource();
+			source.buffer = buffer;
+			source.connect(gain);
+			source.onended = () => {
+				live.delete(source);
+				if (stopped) {
+					if (!live.size)
+						ended(false);
+					return;
+				}
+				schedule();
+				if (finished && !live.size)
+					ended(true);
+			};
+			next ??= context.currentTime + 0.05;
+			source.start(next);
+			next += r.value.length / context.sampleRate;
+			live.add(source);
+		}
+		if (finished && !live.size)
+			ended(!stopped);
+	};
+	schedule();
+	return {
+		done,
+		stop: () => {
+			if (stopped)
+				return;
+			stopped = true;
+			if (!live.size)
+				ended(false);
+			for (const source of live)
+				source.stop();
+		},
+	};
+}

@@ -298,26 +298,38 @@ export function sizes(length, { encoder, hydra, seconds = SECONDS_DEFAULT, snr =
 // that fits seconds and decodes at snr dB, every one but the first without
 // its leading noise symbol; the first has lead symbols of it, for a VOX
 // that needs longer to key. Returns { audio, modes, seconds }.
-export function chain(encoder, frames, { seconds = SECONDS_DEFAULT, snr = SNR_DEFAULT, callSign = 'ANONYMOUS', lead = 1 } = {}) {
-	// a symbol and its guard interval: 41 / 300 seconds
-	const noise = encoder.rate / 300 * 41;
-	const parts = [];
-	const modes = [];
-	for (const [i, frame] of frames.entries()) {
-		const mode = pick(encoder, frame.length, { seconds, snr });
-		if (mode === null)
-			throw new RangeError(`a frame of ${frame.length} bytes doesn't fit in ${seconds} seconds at ${snr} dB`);
-		const audio = encoder.encode(frame, { mode, callSign, lead: i ? 1 : lead });
-		parts.push(i ? audio.subarray(noise) : audio);
-		modes.push(mode);
-	}
+export function chain(encoder, frames, opts = {}) {
+	const parts = [...chainParts(encoder, frames, opts)];
 	const audio = new Float32Array(parts.reduce((n, p) => n + p.length, 0));
 	let pos = 0;
 	for (const p of parts) {
 		audio.set(p, pos);
 		pos += p.length;
 	}
-	return { audio, modes, seconds: audio.length / encoder.rate };
+	return { audio, modes: chainModes(encoder, frames, opts), seconds: audio.length / encoder.rate };
+}
+
+// The modes chain() uses for frames, checking that each fits
+export function chainModes(encoder, frames, { seconds = SECONDS_DEFAULT, snr = SNR_DEFAULT } = {}) {
+	return frames.map((frame) => {
+		const mode = pick(encoder, frame.length, { seconds, snr });
+		if (mode === null)
+			throw new RangeError(`a frame of ${frame.length} bytes doesn't fit in ${seconds} seconds at ${snr} dB`);
+		return mode;
+	});
+}
+
+// The same audio as chain(), one frame at a time, each made only when it
+// is asked for: a long transmission is played as it is made, never held
+// whole (1 MiB in fragments is about an hour, 650 MB of samples)
+export function* chainParts(encoder, frames, { seconds = SECONDS_DEFAULT, snr = SNR_DEFAULT, callSign = 'ANONYMOUS', lead = 1 } = {}) {
+	// a symbol and its guard interval: 41 / 300 seconds
+	const noise = encoder.rate / 300 * 41;
+	const modes = chainModes(encoder, frames, { seconds, snr });
+	for (const [i, frame] of frames.entries()) {
+		const audio = encoder.encode(frame, { mode: modes[i], callSign, lead: i ? 1 : lead });
+		yield i ? audio.subarray(noise) : audio;
+	}
 }
 
 // How long frames of these lengths take on the air when chained

@@ -3,7 +3,7 @@
 // ROBUSTO decoder and reassembled with HYDRA.
 
 import { readFile } from 'node:fs/promises';
-import { sizes, compose, composeAvatar, bundled, attachment, fileName, mimeType, fill, pack, frameCapacity, split, chain, pick, secondsFor, airtime, needs, THRESHOLDS, SECONDS_DEFAULT, SNR_DEFAULT } from './sender.js';
+import { sizes, chainParts, compose, composeAvatar, bundled, attachment, fileName, mimeType, fill, pack, frameCapacity, split, chain, pick, secondsFor, airtime, needs, THRESHOLDS, SECONDS_DEFAULT, SNR_DEFAULT } from './sender.js';
 import { loadEncoder, loadDecoder } from './robusto.js';
 import { loadHydra, Reassembler } from './hydra.js';
 import { loadCrypto } from './crypto.js';
@@ -246,6 +246,13 @@ for (const rate of [48000, 44100]) {
 	check(`${rate}: leading noise only once`, c.audio.length, whole - (s.frames.length - 1) * noise);
 	check(`${rate}: every frame at most ${SECONDS_DEFAULT} s`, c.modes.every((m) => E.modeInfo(m).seconds <= SECONDS_DEFAULT), true);
 	check(`${rate}: every frame decodes at ${SNR_DEFAULT} dB`, c.modes.every((m) => needs(m) <= SNR_DEFAULT), true);
+	{
+		const parts = [...chainParts(E, s.frames, { callSign: 'DL1ABC' })];
+		const joined = new Float32Array(parts.reduce((n, p) => n + p.length, 0));
+		parts.reduce((pos, p) => (joined.set(p, pos), pos + p.length), 0);
+		check(`${rate}: frame by frame, one part each`, parts.length, s.frames.length);
+		check(`${rate}: frame by frame, the same audio as chained`, joined.length === c.audio.length && joined.every((x, i) => x === c.audio[i]), true);
+	}
 	check(`${rate}: airtime as chained`, Math.abs(airtime(E, s.frames.map((f) => f.length)) - c.seconds) < 1e-6, true);
 	check(`${rate}: sizes without encoding, a long post`, JSON.stringify(sizes(long.length, { encoder: E, hydra: H })), JSON.stringify({ lengths: s.frames.map((f) => f.length), K: s.K }));
 	check(`${rate}: sizes without encoding, a short post`, JSON.stringify(sizes(short.length, { encoder: E, hydra: H })), JSON.stringify({ lengths: [short.length], K: 1 }));

@@ -8,8 +8,8 @@ import { loadCrypto } from './crypto.js';
 import { loadHydra } from './hydra.js';
 import { openStation } from './station.js';
 import { listen, inputs, decodeRecording } from './receiver.js';
-import { sizes, compose, composeAvatar, bundled, attachment, isCodec2File, fileName, FILES_MAX, FILES_MAX_BYTES, fill, pack, split, chain, pick, secondsFor, airtime, needs, SECONDS_DEFAULT, SNR_DEFAULT, REDUNDANCY_DEFAULT } from './sender.js';
-import { output, encoderFor, play, LEVEL_DEFAULT, LEVEL_MIN } from './transmitter.js';
+import { sizes, chainParts, chainModes, compose, composeAvatar, bundled, attachment, isCodec2File, fileName, FILES_MAX, FILES_MAX_BYTES, fill, pack, split, pick, secondsFor, airtime, needs, SECONDS_DEFAULT, SNR_DEFAULT, REDUNDANCY_DEFAULT } from './sender.js';
+import { output, encoderFor, play, playParts, LEVEL_DEFAULT, LEVEL_MIN } from './transmitter.js';
 import { encodeCall, decodeText, fromCall, fromName, textUTF8, webpSize, signed as signedRecord, payload as framePayload, T } from './records.js';
 import { smallestText } from './encodings.js';
 import { openKeys } from './keys.js';
@@ -1437,12 +1437,13 @@ async function transmit(d, how, say, stop, step = null) {
 	// longest ago first; a raw payload goes as it is
 	if (!d.raw && !d.frames && await station.relayFill())
 		s.frames = fill(E, s.frames, (await station.relayable()).map((r) => r.bytes), opts).frames;
-	// one transmission: frames chained back to back, kept once all went out
+	// one transmission: frames chained back to back, each made as it is
+	// played, kept once all went out
 	const air = async (frames, what) => {
-		const c = chain(E, frames, opts);
+		const c = { modes: chainModes(E, frames, opts), seconds: airtime(E, frames.map((f) => f.length), opts) };
 		const arrival = Date.now();
 		deafUntil = Infinity;
-		sending = play(ctx, c.audio, outputLevel());
+		sending = playParts(ctx, chainParts(E, frames, opts), outputLevel());
 		$('send-button').disabled = true;
 		$('outbox-send').disabled = true;
 		stop.onclick = () => sending?.stop();
