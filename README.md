@@ -6,6 +6,8 @@ A message board that travels as sound. Ham, CB, PMR, a baby phone or a YouTube v
 
 Rattlechan carries boards, direct messages, positions and sensor telemetry over the ROBUSTO OFDM modem. Posts are self-contained records, optionally split with [HYDRA](https://github.com/xdsopl/hydra) and signed with [CRYPTO](https://github.com/xdsopl/crypto). Keys are identity; call signs and names are labels.
 
+**Try it: [aicodix.github.io/rattlechan](https://aicodix.github.io/rattlechan/).** Open it once while online; from then on it works offline, and you can add it to your home screen.
+
 ## No encryption. Ever.
 
 Every post is readable by anyone in range. Signatures prove who wrote a post without hiding what it says. Requests to add encryption will be closed without discussion.
