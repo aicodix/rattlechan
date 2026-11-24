@@ -143,6 +143,10 @@ function webp(b) {
 // go on the air; any other file as it is
 export const trimmed = (b) => webpSize(b) ? b.subarray(0, riffLength(b)) : b;
 
+// the name of a picture's format, for people
+export const FORMATS = Object.freeze({ 'image/png': 'PNG', 'image/jpeg': 'JPEG', 'image/gif': 'GIF', 'image/webp': 'WebP' });
+export const formatOf = (info) => `${info.animated ? 'animated ' : ''}${FORMATS[info.type]}`;
+
 // Beyond this on either side a picture is only drawn after a warning: a
 // small file can hold a picture that takes gigabytes to decode (a
 // decoding bomb, SPEC.md, Client policy)

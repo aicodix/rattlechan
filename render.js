@@ -3,7 +3,7 @@
 
 import { T, decodeText, TEXT_TABLE } from './records.js';
 import { blake2s } from './blake2s.js';
-import { pictureInfo, small, huge, decodedBytes, WARN_MAX } from './pictures.js';
+import { pictureInfo, small, huge, decodedBytes, formatOf, WARN_MAX } from './pictures.js';
 
 export const hex = (a) => Array.from(a, (b) => b.toString(16).padStart(2, '0')).join('');
 export const short = (a) => hex(a.subarray(0, 4));
@@ -347,7 +347,7 @@ function picture(n, data, label, key) {
 		return null;
 	// beyond 4096 on a side only after a warning, never right away
 	const warn = huge(info);
-	const b = el(warn ? 'button.small.warn' : 'button.small', `show ${warn ? 'very large ' : ''}${label}, ${info.width}x${info.height}, ${bytes(data.length)}`);
+	const b = el(warn ? 'button.small.warn' : 'button.small', `show ${warn ? 'very large ' : ''}${label}, ${formatOf(info)}, ${info.width}x${info.height}, ${bytes(data.length)}`);
 	const draw = async () => {
 		if (warn && !await ask('Show a very large picture?', [
 			`It is ${info.width}x${info.height} pixels in a file of ${bytes(data.length)}. Drawing it takes at least ${bytes(decodedBytes(info))} of memory${info.animated ? ' for each of its frames' : ''}, and may freeze or crash the app.`,
@@ -390,7 +390,7 @@ async function drawn(data, info, label, cls, opens) {
 // button, Escape or a tap beside it
 async function fullSize(data, info, label) {
 	const close = el('button.small', 'Close');
-	const dialog = el('dialog.picture-dialog', el('div.row', el('span.dim', `${info.width}x${info.height}, ${bytes(data.length)}`), close),
+	const dialog = el('dialog.picture-dialog', el('div.row', el('span.dim', `${formatOf(info)}, ${info.width}x${info.height}, ${bytes(data.length)}`), close),
 		el('div.picture-full', await drawn(data, info, label, 'picture-natural', false)));
 	touchToPlay(dialog);
 	document.body.append(dialog);

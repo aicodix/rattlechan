@@ -14,7 +14,7 @@ import { encodeCall, decodeText, fromCall, fromName, textUTF8, webpSize, avatarP
 import { smallestText } from './encodings.js';
 import { openKeys } from './keys.js';
 import { conversations, boards } from './tree.js';
-import { pictureInfo, huge, trimmed } from './pictures.js';
+import { pictureInfo, huge, trimmed, FORMATS } from './pictures.js';
 import * as view from './render.js';
 
 const $ = (id) => document.getElementById(id);
@@ -1397,8 +1397,6 @@ function halved(width, height, budget) {
 	}
 	return [Math.max(1, width), Math.max(1, height)];
 }
-
-const FORMATS = { 'image/png': 'PNG', 'image/jpeg': 'JPEG', 'image/gif': 'GIF', 'image/webp': 'WebP' };
 
 const canvasOf = (w, h) => Object.assign(document.createElement('canvas'), { width: w, height: h });
 

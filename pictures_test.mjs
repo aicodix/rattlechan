@@ -4,7 +4,7 @@
 // moving GIF, and a PNG 2000 pixels wide.
 
 import { readFile } from 'node:fs/promises';
-import { pictureInfo, trimmed, small, huge, decodedBytes, SHOWN_MAX, WARN_MAX } from './pictures.js';
+import { pictureInfo, trimmed, formatOf, small, huge, decodedBytes, SHOWN_MAX, WARN_MAX } from './pictures.js';
 
 let checks = 0, failed = 0;
 
@@ -42,6 +42,9 @@ check('WebP cut short', pictureInfo(dusk.subarray(0, dusk.length - 1)), null);
 	const still = await file('examples/pictures/still.png');
 	check('a PNG not trimmed', trimmed(still), still);
 }
+
+check('format of a still WebP', formatOf(JSON.parse(await info('examples/dusk.webp'))), 'WebP');
+check('format of a moving GIF', formatOf(JSON.parse(await info('examples/pictures/moving.gif'))), 'animated GIF');
 
 // by its bytes, never by a name or a claimed type
 check('text is no picture', pictureInfo(new TextEncoder().encode('%PDF-1.4 not a picture')), null);
