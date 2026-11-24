@@ -25,6 +25,23 @@ const opts = { seconds: SECONDS_DEFAULT, snr: SNR_DEFAULT };
 // samples. file(name) gives the bytes of a file of the repository, such as
 // 'crypto.wasm' or 'examples/dusk.webp'; now is the time in seconds the
 // last post was written.
+// Distinct block indices for split(), drawn by xorshift32 from a fixed seed
+// instead of at random, so the recordings come out the same every time
+export function seededIndices(seed = 1) {
+	let x = seed >>> 0 || 1;
+	return (N, count) => {
+		const out = new Set();
+		while (out.size < Math.min(count, N)) {
+			x ^= x << 13;
+			x ^= x >>> 17;
+			x ^= x << 5;
+			x >>>= 0;
+			out.add(x % N);
+		}
+		return [...out];
+	};
+}
+
 export async function session({ file, rate = 48000, now = Math.floor(Date.now() / 1000) }) {
 	const E = await loadEncoder(rate, await file(`robusto_encoder_${rate}.wasm`));
 	const C = await loadCrypto(await file('crypto.wasm'));
@@ -40,8 +57,9 @@ export async function session({ file, rate = 48000, now = Math.floor(Date.now() 
 	const t0 = now - 900;
 
 	const items = [];
+	const indices = seededIndices();
 	const post = (callSign, what, payload) => {
-		const s = split(payload, { encoder: E, hydra: H, ...opts });
+		const s = split(payload, { encoder: E, hydra: H, indices, ...opts });
 		if (s.frames.length === 1)
 			items.push({ callSign, what, payload });
 		else

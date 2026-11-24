@@ -41,6 +41,22 @@ export function setKey(block) {
 	return head && `${head.params.toString(16)}:${block.length}:${hex(head.root)}`;
 }
 
+// count distinct random block indices of N, none of them in skip (a Set),
+// in the order drawn, at most as many as are left (SPEC.md, Fragments:
+// random indices keep stations sending one set from repeating each other).
+// N is a power of two, so every index is equally likely.
+export function randomIndices(N, count, skip = new Set()) {
+	const want = Math.max(0, Math.min(count, N - skip.size));
+	const out = new Set();
+	const r = new Uint32Array(1);
+	while (out.size < want) {
+		const i = globalThis.crypto.getRandomValues(r)[0] % N;
+		if (!skip.has(i))
+			out.add(i);
+	}
+	return [...out];
+}
+
 // source as for instantiate() in wasm.js. Without one, hydra.wasm is
 // fetched from next to this file, as a browser or PWA does.
 export async function loadHydra(source = new URL('./hydra.wasm', import.meta.url)) {

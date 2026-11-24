@@ -21,7 +21,7 @@ import { loadEncoder } from '../robusto.js';
 import { loadCrypto } from '../crypto.js';
 import { loadHydra } from '../hydra.js';
 import { compose, composeAvatar, split, SECONDS_DEFAULT, SNR_DEFAULT } from '../sender.js';
-import { onAir, wav } from './session.mjs';
+import { onAir, wav, seededIndices } from './session.mjs';
 
 const opts = { seconds: SECONDS_DEFAULT, snr: SNR_DEFAULT };
 
@@ -57,10 +57,11 @@ export async function busy({ file, rate = 48000, now = Math.floor(Date.now() / 1
 			avatars[who] = new Uint8Array(await file(`examples/avatars/${who}.webp`));
 
 	const items = [], ids = {};
+	const indices = seededIndices();
 	const introduced = new Set();
 	// a payload on the air, in Fragments if it doesn't fit one frame
 	const send = (p, what, payload) => {
-		const s = split(payload, { encoder: E, hydra: H, ...opts });
+		const s = split(payload, { encoder: E, hydra: H, indices, ...opts });
 		if (s.frames.length === 1)
 			items.push({ callSign: p.call, what, payload });
 		else

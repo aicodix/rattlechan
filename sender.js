@@ -7,6 +7,7 @@
 import * as R from './records.js';
 import { smallestText } from './encodings.js';
 import { PAYLOAD_MAX, SECONDS_MAX } from './robusto.js';
+import { randomIndices } from './hydra.js';
 
 export const SECONDS_DEFAULT = 5;
 export const SNR_DEFAULT = 10;
@@ -252,8 +253,11 @@ export function secondsFor(encoder, length, snr = SNR_DEFAULT) {
 
 // The frames that carry a payload: itself if it fits in one frame,
 // otherwise one Fragment each, K of them needed and redundancy more (at
-// least one more, at most N). Returns { frames, K }.
-export function split(payload, { encoder, hydra, seconds = SECONDS_DEFAULT, snr = SNR_DEFAULT, redundancy = REDUNDANCY_DEFAULT }) {
+// least one more, at most N), at random indices, as when the set is sent
+// again (SPEC.md, Fragments). indices(N, count) picks them, distinct; the
+// examples pass a seeded one, so their recordings come out the same every
+// time. Returns { frames, K }.
+export function split(payload, { encoder, hydra, seconds = SECONDS_DEFAULT, snr = SNR_DEFAULT, redundancy = REDUNDANCY_DEFAULT, indices = randomIndices }) {
 	const capacity = frameCapacity(encoder, { seconds, snr });
 	if (!capacity)
 		throw new RangeError(`no mode decodes at ${snr} dB`);
@@ -267,10 +271,7 @@ export function split(payload, { encoder, hydra, seconds = SECONDS_DEFAULT, snr 
 		throw new RangeError(`${payload.length} bytes don't split into blocks of ${budget} bytes`);
 	const enc = hydra.encode(payload, { budget });
 	const count = Math.min(enc.N, Math.max(enc.K + 1, Math.ceil(enc.K * (1 + redundancy))));
-	const frames = [];
-	for (let i = 0; i < count; ++i)
-		frames.push(R.payload([enc.fragment(i)]));
-	return { frames, K: enc.K };
+	return { frames: indices(enc.N, count).map((i) => R.payload([enc.fragment(i)])), K: enc.K };
 }
 
 // What split() would make of a payload of length bytes, without making it:

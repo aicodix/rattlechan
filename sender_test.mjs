@@ -240,6 +240,15 @@ for (const rate of [48000, 44100]) {
 	check(`${rate}: long post needs Fragments`, s.K > 1, true);
 	check(`${rate}: 25% more blocks`, s.frames.length, Math.ceil(s.K * 1.25));
 	check(`${rate}: every frame fits`, s.frames.every((f) => f.length <= cap), true);
+	{
+		// random indices, each once, any K of which decode
+		const blocks = s.frames.map((f) => R.parse(f, { verifyBlock: H.verifyBlock })[0]);
+		const indices = blocks.map((b) => b.index);
+		check(`${rate}: valid blocks`, blocks.every((b) => b.verified === true), true);
+		check(`${rate}: indices each once, below N`, new Set(indices).size === indices.length && indices.every((i) => i < blocks[0].N), true);
+		check(`${rate}: indices not simply 0, 1, 2 …`, indices.some((i, n) => i !== n), true);
+		check(`${rate}: the last K decode`, hex(H.decode(blocks.slice(-s.K).map((b) => b.block)).subarray(0, long.length)), hex(long));
+	}
 	c = chain(E, s.frames, { callSign: 'DL1ABC' });
 	const noise = rate / 300 * 41;
 	const whole = s.frames.reduce((n, f, i) => n + E.encode(f, { mode: c.modes[i], callSign: 'DL1ABC' }).length, 0);

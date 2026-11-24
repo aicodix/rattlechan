@@ -2,7 +2,7 @@
 // Planning is checked against the table in HYDRA's README.
 
 import { readFile } from 'node:fs/promises';
-import { loadHydra, Reassembler, blockHeader, PAYLOAD_MAX } from './hydra.js';
+import { loadHydra, Reassembler, blockHeader, randomIndices, PAYLOAD_MAX } from './hydra.js';
 import * as R from './records.js';
 
 const { T } = R;
@@ -231,6 +231,23 @@ const frame = R.payload([R.signed(new Uint8Array(32), new Uint8Array(64), post)]
 	check('largest payload HYDRA holds', p && [p.K, p.N].join(), '1024,1024');
 	const enc = H.encode(randomBytes(8201852), { budget: 8192 });
 	check('largest payload encodes', enc.K, 1024);
+}
+
+// random indices: distinct, below N, never skipped ones, at most as many
+// as are left
+{
+	const some = randomIndices(64, 10);
+	check('random indices: as many as asked', some.length, 10);
+	check('random indices: each once, below N', new Set(some).size === 10 && some.every((i) => Number.isInteger(i) && i >= 0 && i < 64), true);
+	const skip = new Set([0, 1, 2, 3, 4, 5, 6, 7]);
+	check('random indices: none skipped', randomIndices(16, 8, skip).every((i) => !skip.has(i)), true);
+	check('random indices: the rest when asked for more', randomIndices(16, 100, skip).sort((a, b) => a - b).join(), '8,9,10,11,12,13,14,15');
+	check('random indices: none left', randomIndices(4, 3, new Set([0, 1, 2, 3])).length, 0);
+	// every index about equally often
+	const seen = new Array(16).fill(0);
+	for (let n = 0; n < 4000; ++n)
+		++seen[randomIndices(16, 1)[0]];
+	check('random indices: every index drawn, none far more often', Math.min(...seen) > 150 && Math.max(...seen) < 350, true);
 }
 
 console.log(failed ? `${failed} of ${checks} checks failed` : `all ${checks} checks passed`);

@@ -23,7 +23,7 @@
 // frames arriving after the revocation are no longer precious.
 
 import { parse, walk, payload, MalformedError, T } from './records.js';
-import { Reassembler, blockHeader, setKey } from './hydra.js';
+import { Reassembler, blockHeader, setKey, randomIndices } from './hydra.js';
 import { blake2s } from './blake2s.js';
 
 export const hex = (a) => Array.from(a, (b) => b.toString(16).padStart(2, '0')).join('');
@@ -468,15 +468,8 @@ export async function openStation({ store, crypto = null, hydra = null }) {
 		const enc = hydra.regenerate();
 		if (!enc)
 			return null;
-		const want = Math.max(0, Math.min(count, enc.N - blocks.size));
-		const indices = new Set();
-		const r = new Uint32Array(1);
-		while (indices.size < want) {
-			const i = globalThis.crypto.getRandomValues(r)[0] % enc.N;
-			if (!blocks.has(i))
-				indices.add(i);
-		}
-		return { frames: [...indices].map((i) => payload([enc.fragment(i)])), K: enc.K, N: enc.N, held: blocks.size };
+		const indices = randomIndices(enc.N, count, new Set(blocks.keys()));
+		return { frames: indices.map((i) => payload([enc.fragment(i)])), K: enc.K, N: enc.N, held: blocks.size };
 	};
 
 	// sets of Fragments still waiting for blocks
