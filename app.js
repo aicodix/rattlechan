@@ -67,6 +67,8 @@ if ('serviceWorker' in navigator)
 	navigator.serviceWorker.register('sw.js').catch(() => {});
 
 let store, station, persistent = false;
+// when the storage figures were last shown
+let lastStorageRefresh = 0;
 try {
 	store = await openStore(await opfsBackend());
 } catch {
@@ -352,7 +354,6 @@ else if ($('status').textContent === 'starting …')
 
 // ------------------------------------------------------------- receiving
 
-let lastStorageRefresh = 0;
 let receiving = false;
 
 async function handle(events) {
@@ -507,6 +508,9 @@ $('recording').onchange = async () => {
 // ------------------------------------------------------------- storage
 
 async function refreshStorage() {
+	// a tap on Station while the store still opens
+	if (!store)
+		return;
 	lastStorageRefresh = Date.now();
 	const settings = await store.settings();
 	for (const tier of TIERS) {
