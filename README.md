@@ -8,6 +8,30 @@ Rattlechan carries boards, direct messages, positions and sensor telemetry over 
 
 **Try it: [aicodix.github.io/rattlechan](https://aicodix.github.io/rattlechan/).** Open it once while online; from then on it works offline, and you can add it to your home screen.
 
+## For first responders
+
+Rattlechan is for the day nothing else works. Get it ready while everything still does.
+
+### Before you need it
+
+1. Open [aicodix.github.io/rattlechan](https://aicodix.github.io/rattlechan/) while online, on every phone that may need it.
+2. Install it. On Android, in Chrome: Install, in the menu or in the Station tab. On an iPhone or iPad, in Safari: Share, then Add to Home Screen. On iOS this matters most: Safari may delete the data of a web app that isn't on the Home Screen after a week without use. The Station tab shows whether storage is persistent.
+3. In Station, under Keys, add a key with your call sign or name. Every post is signed with a key.
+4. Export secrets and keep the archive off the phone. Print the revocations of each key and keep them apart from the phone: if the phone is lost, sending a revocation tells everyone to stop trusting that key.
+5. Try it with your radio. Hold the phone to the radio, or use a cable, and key the radio with VOX or by holding push-to-talk. In Station, set the output level, and the leading noise for a VOX that needs time to key up; Test plays that noise. Then send a post to a second phone listening on a second radio.
+
+### In the field
+
+* Photo, in Compose, takes a picture and collects it as a post right away, signed with your key, with the subject you typed or the time. Collect does the same for a written post.
+* Collected posts wait in the Outbox, even across reloads. Whoever is at the radio sends them all at once with Send all. Take the pictures, then hand the phone over.
+* Photos are shrunk to about 30 KiB and lose their metadata and GPS position on the way.
+* Compose shows the size and airtime of a post before you send it.
+* Listen, in Station, receives. Posts show in Inbox and Boards.
+* Trust the keys of your team in the log, so their posts are kept and their pictures shown.
+* Export data now and then.
+
+Everything you send can be read by anyone in range, so leave out what shouldn't be public, such as a patient's name.
+
 ## No encryption. Ever.
 
 Every post is readable by anyone in range. Signatures prove who wrote a post without hiding what it says. Requests to add encryption will be closed without discussion.
