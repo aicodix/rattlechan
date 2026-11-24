@@ -96,16 +96,24 @@ function gif(b) {
 	return { type: 'image/gif', width, height, animated: images > 1 };
 }
 
+// The length of a RIFF container of type WEBP, its size field plus the
+// 8 bytes in front, or null if b doesn't start with one that fits in it.
+// Bytes after it are allowed, as after a PNG, JPEG or GIF: browsers
+// ignore them, and some tools pad files.
+const riffLength = (b) => {
+	if (b.length < 30 || ascii(b, 0, 4) !== 'RIFF' || ascii(b, 8, 12) !== 'WEBP')
+		return null;
+	const n = (b[4] | b[5] << 8 | b[6] << 16 | b[7] << 24) >>> 0;
+	return n >= 22 && n + 8 <= b.length ? n + 8 : null;
+};
+
 // The width and height of a WebP file, from its VP8X canvas, VP8L or
-// VP8 header, or null if it isn't one: a RIFF container of type WEBP
-// whose size matches
+// VP8 header, or null if it isn't one
 export function webpSize(b) {
-	if (!(b instanceof Uint8Array) || b.length < 30)
+	if (!(b instanceof Uint8Array) || !riffLength(b))
 		return null;
-	const latin = (at) => String.fromCharCode(...b.subarray(at, at + 4));
+	const latin = (at) => ascii(b, at, at + 4);
 	const u24 = (at) => b[at] | b[at + 1] << 8 | b[at + 2] << 16;
-	if (latin(0) !== 'RIFF' || latin(8) !== 'WEBP' || (u24(4) | b[7] << 24) >>> 0 !== b.length - 8)
-		return null;
 	switch (latin(12)) {
 	case 'VP8X':
 		return { width: u24(24) + 1, height: u24(27) + 1 };
@@ -130,6 +138,10 @@ function webp(b) {
 	const animated = b.length > 20 && ascii(b, 12, 16) === 'VP8X' && (b[20] & 0x02) !== 0;
 	return { type: 'image/webp', ...size, animated };
 }
+
+// A WebP file without the bytes after its RIFF container, so they never
+// go on the air; any other file as it is
+export const trimmed = (b) => webpSize(b) ? b.subarray(0, riffLength(b)) : b;
 
 // Beyond this on either side a picture is only drawn after a warning: a
 // small file can hold a picture that takes gigabytes to decode (a

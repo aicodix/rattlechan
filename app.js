@@ -14,7 +14,7 @@ import { encodeCall, decodeText, fromCall, fromName, textUTF8, webpSize, avatarP
 import { smallestText } from './encodings.js';
 import { openKeys } from './keys.js';
 import { conversations, boards } from './tree.js';
-import { pictureInfo, huge } from './pictures.js';
+import { pictureInfo, huge, trimmed } from './pictures.js';
 import * as view from './render.js';
 
 const $ = (id) => document.getElementById(id);
@@ -886,7 +886,7 @@ function keyCard(k) {
 		if (!f)
 			return;
 		try {
-			let bytes = new Uint8Array(await f.arrayBuffer());
+			let bytes = trimmed(new Uint8Array(await f.arrayBuffer()));
 			const pic = pictureInfo(bytes);
 			if (!pic)
 				throw new RangeError('not a PNG, JPEG, GIF or WebP picture');
@@ -1525,7 +1525,7 @@ function showAttachments() {
 // pixels is halved to fit it right away; the Size picker brings the
 // original back.
 async function attachFile(f) {
-	const file = { bytes: new Uint8Array(await f.arrayBuffer()), type: f.type, name: fileName(f.name) };
+	const file = { bytes: trimmed(new Uint8Array(await f.arrayBuffer())), type: f.type, name: fileName(f.name) };
 	const a = { ...file, original: file, budget: null };
 	const pic = pictureInfo(file.bytes);
 	if (pic && !pic.animated && pic.width * pic.height > BUDGET_DEFAULT)

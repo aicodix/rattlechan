@@ -4,7 +4,7 @@
 // moving GIF, and a PNG 2000 pixels wide.
 
 import { readFile } from 'node:fs/promises';
-import { pictureInfo, small, huge, decodedBytes, SHOWN_MAX, WARN_MAX } from './pictures.js';
+import { pictureInfo, trimmed, small, huge, decodedBytes, SHOWN_MAX, WARN_MAX } from './pictures.js';
 
 let checks = 0, failed = 0;
 
@@ -29,6 +29,19 @@ check('moving GIF', await info('examples/pictures/moving.gif'), want('image/gif'
 check('wide PNG', await info('examples/pictures/wide.png'), want('image/png', 2000, 40, false));
 check('still WebP', await info('examples/dusk.webp'), want('image/webp', 192, 120, false));
 check('moving WebP', JSON.parse(await info('examples/avatars/anna.webp')).animated, true);
+
+// bytes after a WebP's RIFF container, as some tools pad files: still a
+// picture, and trimmed off
+const dusk = await file('examples/dusk.webp');
+const padded = new Uint8Array(dusk.length + 56).fill(0xFF);
+padded.set(dusk);
+check('padded WebP', JSON.stringify(pictureInfo(padded)), want('image/webp', 192, 120, false));
+check('padded WebP trimmed', trimmed(padded).length, dusk.length);
+check('WebP cut short', pictureInfo(dusk.subarray(0, dusk.length - 1)), null);
+{
+	const still = await file('examples/pictures/still.png');
+	check('a PNG not trimmed', trimmed(still), still);
+}
 
 // by its bytes, never by a name or a claimed type
 check('text is no picture', pictureInfo(new TextEncoder().encode('%PDF-1.4 not a picture')), null);
