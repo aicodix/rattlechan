@@ -319,6 +319,14 @@ button.trust { flex: none; }
 .picture-dialog .row { justify-content: space-between; align-items: center; margin: 0 0 8px; }
 .picture-full { overflow: auto; max-width: calc(100vw - 34px); max-height: calc(100vh - 90px); }
 .picture-natural { display: block; max-width: none; max-height: none; }
+/* the avatar cropper: dragging moves the square, never the page */
+.crop-area { position: relative; overflow: hidden; margin: 0 auto; touch-action: none; user-select: none; -webkit-user-select: none; cursor: move; }
+.crop-area canvas { display: block; }
+.crop-square { position: absolute; box-sizing: border-box; border: 2px solid var(--card); outline: 1px solid var(--fg); box-shadow: 0 0 0 100vmax rgb(0 0 0 / 0.5); }
+.crop-square:focus-visible { border-color: var(--accent); }
+.crop-dialog .field input[type=range] { accent-color: var(--accent); width: 100%; min-height: 32px; }
+.crop-dialog .row { justify-content: flex-end; margin: 8px 0 0; }
+.crop-info { min-height: 2.6em; margin: 4px 0 0; }
 .animated { display: inline-block; max-width: 100%; -webkit-touch-callout: none; user-select: none; }
 
 /* nothing moves where the system asks for less motion */

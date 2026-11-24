@@ -10,7 +10,7 @@ import { openStation } from './station.js';
 import { listen, inputs, decodeRecording } from './receiver.js';
 import { sizes, chainParts, chainModes, compose, composeAvatar, bundled, attachment, isCodec2File, fileName, FILES_MAX, FILES_MAX_BYTES, fill, pack, split, pick, secondsFor, airtime, needs, SECONDS_DEFAULT, SNR_DEFAULT, REDUNDANCY_DEFAULT } from './sender.js';
 import { output, encoderFor, play, playParts, LEVEL_DEFAULT, LEVEL_MIN } from './transmitter.js';
-import { encodeCall, decodeText, fromCall, fromName, textUTF8, webpSize, avatarProblem, AVATAR_MAX_BYTES, AVATAR_MIN_SIDE, signed as signedRecord, payload as framePayload, T } from './records.js';
+import { encodeCall, decodeText, fromCall, fromName, textUTF8, webpSize, avatarProblem, AVATAR_MAX_BYTES, AVATAR_MIN_SIDE, AVATAR_MAX_SIDE, signed as signedRecord, payload as framePayload, T } from './records.js';
 import { smallestText } from './encodings.js';
 import { openKeys } from './keys.js';
 import { conversations, boards } from './tree.js';
@@ -873,8 +873,8 @@ function keyCard(k) {
 		view.el('div.row', word, revokeNow, revokeStop),
 		revokeStatus);
 	revokeArea.hidden = true;
-	// its avatar, sent now and then from here: a picture within the limits
-	// as it is, any other still picture made into one
+	// its avatar, sent now and then from here: a still picture cropped
+	// (cropAvatar), an animation only as it is
 	const avatarInfo = view.el('p.dim');
 	const file = view.el('input');
 	file.type = 'file';
@@ -890,12 +890,12 @@ function keyCard(k) {
 			const pic = pictureInfo(bytes);
 			if (!pic)
 				throw new RangeError('not a PNG, JPEG, GIF or WebP picture');
-			if (avatarProblem(bytes)) {
-				if (pic.animated)
-					throw new RangeError(`an animation goes only as it is, and stations ignore this one: ${avatarProblem(bytes)}`);
-				avatarInfo.textContent = 'Making an avatar of it…';
-				bytes = await makeAvatar(bytes, pic.type);
-			}
+			if (pic.animated && avatarProblem(bytes))
+				throw new RangeError(`an animation goes only as it is, and stations ignore this one: ${avatarProblem(bytes)}`);
+			if (!pic.animated)
+				bytes = await cropAvatar(bytes, pic);
+			if (!bytes)
+				return;
 			await keys.update(k.key, { avatar: bytes });
 			fillKeys();
 		} catch (err) {
@@ -943,7 +943,7 @@ function keyCard(k) {
 			avatarInfo.textContent = err.message;
 		});
 	else if (!k.avatar)
-		avatarInfo.textContent = 'No avatar: stations show the identicon. Choose any picture or photo: its centre square is made into an avatar. A square PNG, JPEG, GIF or WebP picture or animation from 128x128 to 512x512 pixels in at most 8 KiB goes as it is.';
+		avatarInfo.textContent = 'No avatar: stations show the identicon. Choose any picture or photo and the square of it to use. A square PNG, JPEG, GIF or WebP picture or animation from 128x128 to 512x512 pixels in at most 8 KiB goes as it is.';
 	const revoke = view.el('button.small', 'Revoke…');
 	revoke.hidden = reason.options.length === 0;
 	revoke.onclick = () => {
@@ -1429,28 +1429,151 @@ async function shrink(bytes, type, budget) {
 	return jpegOf(out, 0.7);
 }
 
-// An avatar from a still picture: its centre square, halved to 256 pixels
-// a side or less (but at least 128), as a JPEG of falling quality until it
-// fits 8 KiB, then at 128 pixels if it still doesn't. Every browser
-// encodes JPEG; not every one WebP.
-async function makeAvatar(bytes, type) {
-	const img = await createImageBitmap(new Blob([bytes], { type }));
-	const s = Math.min(img.width, img.height);
-	const x = Math.floor((img.width - s) / 2), y = Math.floor((img.height - s) / 2);
-	try {
-		for (const budget of [256 * 256, AVATAR_MIN_SIDE * AVATAR_MIN_SIDE]) {
-			const [side] = halved(s, s, budget);
-			const out = halving(img, x, y, s, s, budget, Math.max(AVATAR_MIN_SIDE, side));
-			for (const quality of [0.8, 0.7, 0.6, 0.5, 0.4, 0.3]) {
-				const jpeg = await jpegOf(out, quality);
-				if (jpeg.length <= AVATAR_MAX_BYTES)
-					return jpeg;
-			}
+// An avatar from the square of side s at x, y of a decoded picture:
+// halved until it is at most 512 pixels a side (never below 128), as a
+// JPEG of falling quality until it fits 8 KiB, halved again if it still
+// doesn't. Every browser encodes JPEG; not every one WebP.
+async function avatarOf(img, x, y, s) {
+	// the sides halving reaches from at most 512 down to 128; a square of
+	// less than 128 is drawn at 128
+	let side = s;
+	while (side > AVATAR_MAX_SIDE)
+		side = Math.floor(side / 2);
+	const sides = [Math.max(AVATAR_MIN_SIDE, side)];
+	while (Math.floor(side / 2) >= AVATAR_MIN_SIDE)
+		sides.push(side = Math.floor(side / 2));
+	for (const [i, n] of sides.entries()) {
+		const out = halving(img, x, y, s, s, n * n, n);
+		const last = i === sides.length - 1;
+		for (const quality of last ? [0.8, 0.7, 0.6, 0.5, 0.4, 0.3] : [0.8, 0.7, 0.6, 0.5]) {
+			const jpeg = await jpegOf(out, quality);
+			if (jpeg.length <= AVATAR_MAX_BYTES)
+				return jpeg;
 		}
+	}
+	throw new RangeError(`it doesn't fit in 8 KiB even at ${sides.at(-1)}x${sides.at(-1)}`);
+}
+
+// Cropping a still picture for an avatar: the picture drawn to fit the
+// screen with a square over it, moved by dragging anywhere on it or with
+// the arrow keys, sized with a slider from 128 pixels of the picture (or
+// its shorter side, if less) up to its shorter side. The whole of a
+// picture already within the limits goes as it is. Resolves to the
+// avatar's bytes, or null if cancelled.
+async function cropAvatar(bytes, pic) {
+	const img = await createImageBitmap(new Blob([bytes], { type: pic.type }));
+	const W = img.width, H = img.height, S = Math.min(W, H);
+	const k = Math.min(1, (Math.min(window.innerWidth, 560) - 50) / W, window.innerHeight * 0.6 / H);
+	const preview = canvasOf(Math.max(1, Math.round(W * k)), Math.max(1, Math.round(H * k)));
+	const ctx = preview.getContext('2d');
+	ctx.imageSmoothingQuality = 'high';
+	ctx.drawImage(halving(img, 0, 0, W, H, preview.width * preview.height * 4), 0, 0, preview.width, preview.height);
+	let side = S, x = (W - S) / 2, y = (H - S) / 2;
+	const square = view.el('div.crop-square');
+	square.tabIndex = 0;
+	square.setAttribute('aria-label', 'the square to crop, moved with the arrow keys');
+	const area = view.el('div.crop-area', preview, square);
+	area.style.width = `${preview.width}px`;
+	const size = view.el('input');
+	Object.assign(size, { type: 'range', min: Math.min(AVATAR_MIN_SIDE, S), max: S, value: S });
+	const info = view.el('p.dim.crop-info', ' ');
+	const cancel = view.el('button', 'Cancel');
+	const use = view.el('button.primary', 'Use');
+	const dialog = view.el('dialog.picture-dialog.crop-dialog', area,
+		view.el('label.field', 'Size', size), info, view.el('div.row', cancel, use));
+	const place = () => {
+		x = Math.min(Math.max(0, x), W - side);
+		y = Math.min(Math.max(0, y), H - side);
+		Object.assign(square.style, { left: `${x * k}px`, top: `${y * k}px`, width: `${side * k}px`, height: `${side * k}px` });
+	};
+	// the avatar the square makes now
+	const make = () => {
+		const [cx, cy] = [Math.round(x), Math.round(y)];
+		return side === W && W === H && !avatarProblem(bytes) ? Promise.resolve(bytes) : avatarOf(img, cx, cy, side);
+	};
+	let shown = 0, timer = 0;
+	const estimate = () => {
+		clearTimeout(timer);
+		timer = setTimeout(async () => {
+			const at = ++shown;
+			try {
+				const b = await make();
+				const p = pictureInfo(b);
+				if (at === shown)
+					info.textContent = `${side}x${side} of the picture, sent as ${b === bytes ? 'it is, ' : ''}${p.width}x${p.height} ${FORMATS[p.type]} of ${view.bytes(b.length)}`;
+			} catch (err) {
+				if (at === shown)
+					info.textContent = err.message;
+			}
+		}, 300);
+	};
+	let last = null;
+	area.onpointerdown = (e) => {
+		area.setPointerCapture(e.pointerId);
+		last = [e.clientX, e.clientY];
+		e.preventDefault();
+	};
+	area.onpointermove = (e) => {
+		if (!last)
+			return;
+		x += (e.clientX - last[0]) / k;
+		y += (e.clientY - last[1]) / k;
+		last = [e.clientX, e.clientY];
+		place();
+	};
+	area.onpointerup = area.onpointercancel = () => {
+		if (last)
+			estimate();
+		last = null;
+	};
+	square.onkeydown = (e) => {
+		const step = Math.max(1, Math.round(side / 20));
+		const moves = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
+		if (!moves[e.key])
+			return;
+		e.preventDefault();
+		x += moves[e.key][0];
+		y += moves[e.key][1];
+		place();
+		estimate();
+	};
+	// resized about its centre
+	size.oninput = () => {
+		const n = Number(size.value);
+		x += (side - n) / 2;
+		y += (side - n) / 2;
+		side = n;
+		place();
+		estimate();
+	};
+	document.body.append(dialog);
+	dialog.showModal();
+	place();
+	estimate();
+	square.focus();
+	try {
+		return await new Promise((resolve) => {
+			cancel.onclick = () => resolve(null);
+			dialog.oncancel = (e) => {
+				e.preventDefault();
+				resolve(null);
+			};
+			use.onclick = async () => {
+				use.disabled = true;
+				try {
+					resolve(await make());
+				} catch (err) {
+					info.textContent = err.message;
+					use.disabled = false;
+				}
+			};
+		});
 	} finally {
+		clearTimeout(timer);
+		dialog.close();
+		dialog.remove();
 		img.close();
 	}
-	throw new RangeError('it doesn\'t fit in 8 KiB even at 128x128');
 }
 
 // the size picker of a still picture with more pixels than the smallest
