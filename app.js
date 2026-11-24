@@ -9,7 +9,7 @@ import { loadHydra } from './hydra.js';
 import { openStation } from './station.js';
 import { listen, inputs, decodeRecording } from './receiver.js';
 import { sizes, chainParts, chainModes, compose, composeAvatar, bundled, attachment, isCodec2File, fileName, FILES_MAX, FILES_MAX_BYTES, fill, pack, split, pick, secondsFor, airtime, needs, SECONDS_DEFAULT, SNR_DEFAULT, REDUNDANCY_DEFAULT } from './sender.js';
-import { output, encoderFor, play, playParts, LEVEL_DEFAULT, LEVEL_MIN } from './transmitter.js';
+import { wake, quiet, encoderFor, play, playParts, LEVEL_DEFAULT, LEVEL_MIN } from './transmitter.js';
 import { encodeCall, decodeText, fromCall, fromName, textUTF8, webpSize, avatarProblem, AVATAR_MAX_BYTES, AVATAR_MIN_SIDE, AVATAR_MAX_SIDE, signed as signedRecord, payload as framePayload, T } from './records.js';
 import { smallestText } from './encodings.js';
 import { openKeys } from './keys.js';
@@ -507,8 +507,12 @@ function startListening() {
 	});
 }
 
+// cuts off a transmission too, as on the modem's page: it may play through
+// the receiver's context, and a new microphone stalls any running context
 function stopListening() {
 	listening += 1;
+	sending?.stop();
+	quiet();
 	const r = receiver;
 	receiver = null;
 	r?.stop();
@@ -917,13 +921,14 @@ function keyCard(k) {
 	revokeStop.hidden = true;
 	const revokeStatus = view.el('p.dim');
 	revokeNow.onclick = async () => {
+		const ctx = audioOut();
 		revokeNow.disabled = true;
 		const say = (t) => {
 			revokeStatus.textContent = t;
 		};
 		try {
 			const d = { payload: fromHex(k.revocations[reason.value]), o: await own(), raw: true };
-			if (await transmit(d, 'longer', say, revokeStop))
+			if (await transmit(ctx, d, 'longer', say, revokeStop))
 				word.value = '';
 		} catch (err) {
 			say(`Can't send: ${err.message}`);
@@ -986,12 +991,13 @@ function keyCard(k) {
 	const stepField = view.el('label.check', stepBox, view.el('span', 'fragments one at a time, pressing Send for each'));
 	stepField.hidden = sendAvatar.hidden;
 	sendAvatar.onclick = async () => {
+		const ctx = audioOut();
 		sendAvatar.disabled = true;
 		const say = (t) => {
 			avatarInfo.textContent = t;
 		};
 		try {
-			await transmit(await avatarDraft(k), 'fragments', say, avatarStop, stepBox.checked ? { next: sendAvatar, finish: avatarFinish } : null);
+			await transmit(ctx, await avatarDraft(k), 'fragments', say, avatarStop, stepBox.checked ? { next: sendAvatar, finish: avatarFinish } : null);
 		} catch (err) {
 			say(`Can't send: ${err.message}`);
 		}
@@ -1052,6 +1058,7 @@ $('relay-fill').onchange = () => station.setRelayFill($('relay-fill').checked);
 
 // every kept revocation at once: as many per frame as fit, frames chained
 $('relay-send').onclick = async () => {
+	const ctx = audioOut();
 	$('relay-send').disabled = true;
 	const say = (t) => {
 		$('relay-status').textContent = t;
@@ -1059,9 +1066,11 @@ $('relay-send').onclick = async () => {
 	try {
 		const list = await station.relayable();
 		const o = await own();
-		const E = await encoderFor((await output()).sampleRate);
+		if (!ctx)
+			throw new Error('already sending');
+		const E = await encoderFor(ctx.sampleRate);
 		const p = pack(E, list.map((r) => r.bytes), o);
-		await transmit({ frames: p.frames, o }, 'longer', say, $('relay-stop'));
+		await transmit(ctx, { frames: p.frames, o }, 'longer', say, $('relay-stop'));
 	} catch (err) {
 		say(`Can't send: ${err.message}`);
 	}
@@ -1142,6 +1151,12 @@ let deafUntil = 0;
 let sending = null;
 // while fragments go out one at a time, between them too
 let stepping = false;
+
+// the AudioContext for a transmission, first thing in a click handler (see
+// wake()); null while one goes out, whose audio stays untouched
+function audioOut() {
+	return sending ? null : wake(receiver?.context);
+}
 
 function setKind(k) {
 	kind = k;
@@ -1759,11 +1774,11 @@ $('hex').oninput = typed;
 // transmission with its leading noise, next sending the next and finish
 // ending early. Resolves to true once it went out or was finished with
 // enough fragments to decode, 'short' if finished with fewer, false if
-// stopped.
-async function transmit(d, how, say, stop, step = null) {
-	if (sending || stepping)
+// stopped. ctx is the AudioContext from audioOut(), taken first thing in
+// the click handler; each next of step takes a new one.
+async function transmit(ctx, d, how, say, stop, step = null) {
+	if (!ctx || sending || stepping)
 		throw new Error('already sending');
-	const ctx = await output();
 	const E = await encoderFor(ctx.sampleRate);
 	const callSign = d.o.callSign || 'ANONYMOUS';
 	// splitting a large post takes seconds: say so before it starts
@@ -1780,6 +1795,8 @@ async function transmit(d, how, say, stop, step = null) {
 	// one transmission: frames chained back to back, each made as it is
 	// played, kept once all went out
 	const air = async (frames, what) => {
+		// the context of a later fragment may run at another rate
+		const E = await encoderFor(ctx.sampleRate);
 		const c = { modes: chainModes(E, frames, opts), seconds: airtime(E, frames.map((f) => f.length), opts) };
 		const arrival = Date.now();
 		deafUntil = Infinity;
@@ -1842,11 +1859,14 @@ async function transmit(d, how, say, stop, step = null) {
 				const go = await new Promise((resolve) => {
 					step.next.textContent = `Send fragment ${i + 1} of ${n}`;
 					step.next.disabled = false;
-					step.next.onclick = () => resolve(true);
-					step.finish.onclick = () => resolve(false);
+					// each fragment its own context, from its own tap
+					step.next.onclick = () => resolve(audioOut());
+					step.finish.onclick = () => resolve(null);
 					step.finish.hidden = false;
 				});
 				step.finish.hidden = true;
+				if (go)
+					ctx = go;
 				if (!go) {
 					say(`Finished after ${i} of ${n} fragments${i < s.K ? `, fewer than the ${s.K} needed` : ''}.`);
 					return i >= s.K ? true : 'short';
@@ -1908,9 +1928,9 @@ showLead();
 $('test-output').onclick = async () => {
 	if (sending || stepping)
 		return;
+	const ctx = audioOut();
 	$('test-output').disabled = true;
 	try {
-		const ctx = await output();
 		// exactly the leading noise before a transmission, at the output level
 		const audio = (await encoderFor(ctx.sampleRate)).noise(leadSymbols());
 		deafUntil = Infinity;
@@ -1943,6 +1963,7 @@ const setOneAtATime = (on) => {
 };
 
 $('send-button').onclick = async () => {
+	const ctx = audioOut();
 	$('send-button').disabled = true;
 	const say = (t) => {
 		$('send-status').textContent = t;
@@ -1953,7 +1974,7 @@ $('send-button').onclick = async () => {
 			throw new Error(d.why);
 		const how = d.raw ? 'longer' : document.querySelector('input[name=how]:checked')?.value ?? 'fragments';
 		const step = how === 'fragments' && oneAtATime() ? { next: $('send-button'), finish: $('send-finish') } : null;
-		if (await transmit(d, how, say, $('send-stop'), step))
+		if (await transmit(ctx, d, how, say, $('send-stop'), step))
 			clearForm();
 	} catch (err) {
 		say(`Can't send: ${err.message}`);
@@ -2210,6 +2231,7 @@ for (const r of document.querySelectorAll('input[name=outbox-how]'))
 $('outbox-one-at-a-time').onchange = () => setOneAtATime($('outbox-one-at-a-time').checked);
 
 $('outbox-send').onclick = async () => {
+	const ctx = audioOut();
 	$('outbox-send').disabled = true;
 	const say = (t) => {
 		$('outbox-status').textContent = t;
@@ -2222,7 +2244,7 @@ $('outbox-send').onclick = async () => {
 		const step = how === 'fragments' && oneAtATime() ? { next: $('outbox-send'), finish: $('outbox-finish') } : null;
 		// finished with too few fragments to decode, the posts stay to be
 		// sent again, with the same IDs
-		const done = await transmit(d, how, say, $('outbox-stop'), step);
+		const done = await transmit(ctx, d, how, say, $('outbox-stop'), step);
 		if (done === 'short')
 			say(`${$('outbox-status').textContent} The posts stay here.`);
 		if (done === true) {

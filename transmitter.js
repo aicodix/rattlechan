@@ -5,20 +5,36 @@
 
 import { RATES, loadEncoder } from './robusto.js';
 
-let ctx = null;
+let own = null;
 const encoders = new Map();
 
-// the output's AudioContext; call from a user gesture, so it may start
-export async function output() {
-	if (!ctx || ctx.state === 'closed') {
-		ctx = new AudioContext();
-		if (!RATES.includes(ctx.sampleRate)) {
-			await ctx.close();
-			ctx = new AudioContext({ sampleRate: 48000 });
-		}
+// The AudioContext for a transmission, as on the modem's page (aicodix/modem,
+// robusto branch, index.html): the receiver's own while it listens and runs,
+// as Safari reconfigures the audio hardware when a microphone starts, which
+// stalls a context that already runs, otherwise a new one each time, as
+// iOS can break a context in the background that then still claims to run.
+// Call it first thing in a click handler, before any await: iOS only lets a
+// context start from a user gesture, and the gesture is gone after the first
+// await. It never waits: on iOS resume() and close() may never settle.
+export function wake(shared = null) {
+	if (shared?.state === 'running') {
+		quiet();
+		return shared;
 	}
-	await ctx.resume();
-	return ctx;
+	quiet();
+	own = new AudioContext();
+	if (!RATES.includes(own.sampleRate)) {
+		own.close().catch(() => {});
+		own = new AudioContext({ sampleRate: 48000 });
+	}
+	own.resume().catch(() => {});
+	return own;
+}
+
+// closes the context wake() made, if any
+export function quiet() {
+	own?.close().catch(() => {});
+	own = null;
 }
 
 // the ROBUSTO encoder for a rate, loaded once
@@ -43,16 +59,21 @@ export function play(context, samples, level = 0) {
 	const gain = context.createGain();
 	gain.gain.value = 10 ** (Math.min(0, level) / 20);
 	source.connect(gain).connect(context.destination);
-	let stopped = false;
+	let stopped = false, ended;
 	const done = new Promise((resolve) => {
+		ended = resolve;
 		source.onended = () => resolve(!stopped);
 	});
 	source.start();
 	return {
 		done,
+		// resolves done at once: a closed context may never end its sources
 		stop: () => {
 			stopped = true;
-			source.stop();
+			ended(false);
+			try {
+				source.stop();
+			} catch {}
 		},
 	};
 }
@@ -72,10 +93,15 @@ export function playParts(context, parts, level = 0, { destination = context.des
 	// when the next part starts, set once the first is made: making it
 	// takes a moment, and a start in the past would play it late
 	let next = null;
-	let stopped = false, finished = false, ended;
+	let stopped = false, finished = false, over = false, ended;
 	const done = new Promise((resolve) => {
 		ended = (complete) => {
-			gain.disconnect();
+			if (over)
+				return;
+			over = true;
+			try {
+				gain.disconnect();
+			} catch {}
 			resolve(complete);
 		};
 	});
@@ -113,14 +139,17 @@ export function playParts(context, parts, level = 0, { destination = context.des
 	schedule();
 	return {
 		done,
+		// resolves done at once: a closed context may never end its sources
 		stop: () => {
 			if (stopped)
 				return;
 			stopped = true;
-			if (!live.size)
-				ended(false);
-			for (const source of live)
-				source.stop();
+			ended(false);
+			for (const source of live) {
+				try {
+					source.stop();
+				} catch {}
+			}
 		},
 	};
 }

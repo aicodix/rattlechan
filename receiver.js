@@ -40,7 +40,8 @@ async function audioContext() {
 // onReport({ events, peak, busy }) is called as the decoder reports, and
 // onEnded() when the microphone ends by itself (iOS ends it when the app
 // goes to the background). Call from a user gesture, so the AudioContext
-// may start. Returns { rate, deviceId, label, health(), stop() }; health()
+// may start. Returns { rate, context, deviceId, label, health(), stop() },
+// the context for transmissions to play through while listening; health()
 // gives the context's state and the microphone's for when nothing comes.
 // As on the modem's page, the microphone is asked for before the context:
 // Safari reconfigures the audio hardware when the microphone starts, which
@@ -91,7 +92,7 @@ export async function listen({ deviceId = null, onReport, onEnded = () => {} }) 
 			onEnded();
 	});
 	const health = () => ({ context: parts.ctx.state, track: track?.readyState ?? 'none', muted: !!track?.muted });
-	return { rate: parts.ctx.sampleRate, deviceId: track?.getSettings().deviceId ?? null, label: track?.label ?? '', health, stop };
+	return { rate: parts.ctx.sampleRate, context: parts.ctx, deviceId: track?.getSettings().deviceId ?? null, label: track?.label ?? '', health, stop };
 }
 
 // The audio inputs, with labels once the user allowed the microphone
