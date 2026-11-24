@@ -34,6 +34,13 @@ export function blockHeader(block) {
 	};
 }
 
+// The set a block belongs to, as the Reassembler and the station name it:
+// its parameters (K, height, hash flag), its length and its root
+export function setKey(block) {
+	const head = blockHeader(block);
+	return head && `${head.params.toString(16)}:${block.length}:${hex(head.root)}`;
+}
+
 // source as for instantiate() in wasm.js. Without one, hydra.wasm is
 // fetched from next to this file, as a browser or PWA does.
 export async function loadHydra(source = new URL('./hydra.wasm', import.meta.url)) {
@@ -200,7 +207,7 @@ export class Reassembler {
 		const head = blockHeader(block);
 		if (!head || !this.hydra.verifyBlock(block))
 			return null;
-		const key = `${head.params.toString(16)}:${block.length}:${hex(head.root)}`;
+		const key = setKey(block);
 		if (this.done.has(key))
 			return { key, done: true };
 		let set = this.sets.get(key);

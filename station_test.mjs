@@ -103,6 +103,31 @@ const bad = R.payload([blocks[enc.K]]);
 bad[bad.length - 1] ^= 1;
 check('bad block dropped', typeof (await S.receive(bad)).error, 'string');
 
+// sending a decoded set again: new blocks of the same root at indices the
+// station holds none of, any of which completes a set short of blocks
+{
+	const SR = await openStation({ store: await openStore(memoryBackend()), crypto: C, hydra: H });
+	let setKey;
+	for (let i = 0; i < enc.K; ++i)
+		setKey = (await SR.receive(R.payload([blocks[i]]))).fragments[0].key;
+	check('resend: an unknown set', await SR.resend('0:0:00', 2), null);
+	const r = await SR.resend(setKey, 5);
+	check('resend: K, N and the blocks held', [r.K, r.N, r.held].join(), [enc.K, enc.N, enc.K].join());
+	check('resend: as many frames as asked', r.frames.length, 5);
+	const made = r.frames.map((f) => R.parse(f, { verifyBlock: H.verifyBlock })[0]);
+	check('resend: valid blocks', made.every((n) => n.type === R.T.FRAGMENT && n.verified === true), true);
+	check('resend: the same root', made.every((n) => hex(n.root) === hex(R.parse(R.payload([blocks[0]]), { verifyBlock: H.verifyBlock })[0].root)), true);
+	const indices = made.map((n) => n.index);
+	check('resend: new indices, each once', indices.every((i) => i >= enc.K) && new Set(indices).size === indices.length, true);
+	const SQ = await openStation({ store: await openStore(memoryBackend()), crypto: C, hydra: H });
+	let got;
+	for (const f of [...blocks.slice(0, enc.K - 2).map((b) => R.payload([b])), ...r.frames.slice(0, 2)])
+		got = (await SQ.receive(f)).fragments[0];
+	check('resend: completes a set short of blocks', got.used, long.length);
+	await SR.sent(r.frames[0]);
+	check('resend: blocks sent count as held', (await SR.resend(setKey, 1)).held, enc.K + 1);
+}
+
 // ------------------------------------------------------------ replaying
 
 {

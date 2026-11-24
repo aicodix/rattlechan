@@ -277,6 +277,7 @@ td input { width: 6em; min-height: 36px; padding: 4px 8px; }
 .face { display: inline-flex; flex: none; }
 .avatar { display: block; width: 32px; height: 32px; border-radius: 6px; object-fit: cover; }
 
+.box-head.row-between { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; }
 .box-head.signer { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .who { flex: 1; min-width: 0; }
 button.trust { flex: none; }

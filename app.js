@@ -10,7 +10,7 @@ import { openStation } from './station.js';
 import { listen, inputs, decodeRecording } from './receiver.js';
 import { sizes, chainParts, chainModes, compose, composeAvatar, bundled, attachment, isCodec2File, fileName, FILES_MAX, FILES_MAX_BYTES, fill, pack, split, pick, secondsFor, airtime, needs, SECONDS_DEFAULT, SNR_DEFAULT, REDUNDANCY_DEFAULT } from './sender.js';
 import { wake, quiet, encoderFor, play, playParts, LEVEL_DEFAULT, LEVEL_MIN } from './transmitter.js';
-import { encodeCall, decodeText, fromCall, fromName, textUTF8, webpSize, avatarProblem, AVATAR_MAX_BYTES, AVATAR_MIN_SIDE, AVATAR_MAX_SIDE, signed as signedRecord, payload as framePayload, T } from './records.js';
+import { encodeCall, decodeText, fromCall, fromName, textUTF8, webpSize, avatarProblem, AVATAR_MAX_BYTES, AVATAR_MIN_SIDE, AVATAR_MAX_SIDE, signed as signedRecord, payload as framePayload, encodeLength, walk, T } from './records.js';
 import { smallestText } from './encodings.js';
 import { openKeys } from './keys.js';
 import { conversations, boards } from './tree.js';
@@ -343,6 +343,8 @@ view.configure({
 		showTab('send');
 		$('text').focus();
 	},
+	setOf: (id) => setOfPost(view.hex(id)),
+	resend: (set) => sendAgain(set),
 });
 
 await restart();
@@ -1785,7 +1787,9 @@ async function transmit(ctx, d, how, say, stop, step = null) {
 	say('Preparing …');
 	await new Promise((r) => setTimeout(r, 50));
 	// frames packed by the caller, or the draft's own
-	const s = d.frames ? { frames: d.frames, K: d.frames.length, seconds: d.o.seconds, snr: d.o.snr } : plan(E, d, how);
+	// K null: new blocks of a set sent before, whose receivers need any
+	// number of them
+	const s = d.frames ? { frames: d.frames, K: d.K === undefined ? d.frames.length : d.K, seconds: d.o.seconds, snr: d.o.snr } : plan(E, d, how);
 	const opts = { seconds: s.seconds, snr: s.snr, callSign, lead: leadSymbols() };
 	const n = s.frames.length;
 	// kept revocations in the room the frames leave anyway, the one sent
@@ -1855,7 +1859,7 @@ async function transmit(ctx, d, how, say, stop, step = null) {
 	try {
 		for (let i = 0; i < n; ++i) {
 			if (i) {
-				say(`Fragment ${i} of ${n} sent, ${i >= s.K ? 'enough to decode' : `any ${s.K} needed`}. Ready for the next? Press Send.`);
+				say(`Fragment ${i} of ${n} sent${s.K === null ? '' : `, ${i >= s.K ? 'enough to decode' : `any ${s.K} needed`}`}. Ready for the next? Press Send.`);
 				const go = await new Promise((resolve) => {
 					step.next.textContent = `Send fragment ${i + 1} of ${n}`;
 					step.next.disabled = false;
@@ -1868,8 +1872,8 @@ async function transmit(ctx, d, how, say, stop, step = null) {
 				if (go)
 					ctx = go;
 				if (!go) {
-					say(`Finished after ${i} of ${n} fragments${i < s.K ? `, fewer than the ${s.K} needed` : ''}.`);
-					return i >= s.K ? true : 'short';
+					say(`Finished after ${i} of ${n} fragments${s.K !== null && i < s.K ? `, fewer than the ${s.K} needed` : ''}.`);
+					return s.K === null || i >= s.K ? true : 'short';
 				}
 			}
 			if (!await air([s.frames[i]], `fragment ${i + 1} of ${n}`)) {
@@ -1888,6 +1892,116 @@ async function transmit(ctx, d, how, say, stop, step = null) {
 		estimate();
 		showOutbox();
 	}
+}
+
+// ----------------------------------------------------------- sending again
+
+// the decoded fragment set each post arrived in, by post ID (hex), worked
+// out again when the station's entries change
+let setsOf = { all: null, n: -1, map: new Map() };
+function setOfPost(id) {
+	const all = station.entries();
+	if (setsOf.all !== all || setsOf.n !== all.length) {
+		const map = new Map();
+		for (const e of all)
+			for (const f of e.fragments)
+				if (f.nodes)
+					for (const [n] of walk(f.nodes))
+						if ((n.type === T.TOPIC || n.type === T.REPLY) && n.id && !map.has(view.hex(n.id)))
+							map.set(view.hex(n.id), f.key);
+		setsOf = { all, n: all.length, map };
+	}
+	return setsOf.map.get(id) ?? null;
+}
+
+// New blocks of a decoded set, anyone's, as a relay sends them (SPEC.md,
+// Fragments): at indices this station holds none of, so a station still
+// short of blocks completes the post with any of them, and the same post
+// ID and root, so they join sets waiting for them. How many, by default as
+// many as the extra blocks setting adds, all at once or one at a time,
+// each in a frame of its own, made longer when the station's seconds per
+// frame don't hold a block.
+async function sendAgain(set) {
+	const [p, blen] = set.split(':');
+	const params = parseInt(p, 16);
+	const K = (params & 1023) + 1, N = 2 ** ((params >> 10 & 15) + 1);
+	const frameLength = 1 + encodeLength(Number(blen)).length + Number(blen);
+	const o = await own();
+	const count = view.el('input');
+	Object.assign(count, { type: 'number', min: 1, max: N - 1, step: 1, inputmode: 'numeric', value: Math.max(1, Math.ceil(K * o.redundancy)) });
+	const stepBox = view.el('input');
+	stepBox.type = 'checkbox';
+	stepBox.checked = oneAtATime();
+	stepBox.onchange = () => setOneAtATime(stepBox.checked);
+	const info = view.el('p.dim');
+	const status = view.el('p.dim');
+	const send = view.el('button.primary', 'Send');
+	const stop = view.el('button', 'Stop');
+	const finish = view.el('button', 'Finish');
+	const close = view.el('button', 'Close');
+	stop.hidden = finish.hidden = true;
+	const dialog = view.el('dialog.trust-dialog',
+		view.el('h3', 'Send again'),
+		view.el('p', `New blocks of this post, any ${K} of which decode it: a station still short of blocks completes it with any of them, one that heard none needs ${K}.`),
+		view.el('label.field', 'New blocks ', count),
+		view.el('label.check', stepBox, view.el('span', 'one at a time, pressing Send for each')),
+		info,
+		view.el('div.row', send, stop, finish, close),
+		status);
+	const say = (t) => {
+		status.textContent = t;
+	};
+	const blocks = () => Math.max(1, Math.min(N - 1, Math.floor(Number(count.value)) || 1));
+	// the seconds per frame, or the fewest that hold a block
+	const seconds = (E) => {
+		const s = secondsFor(E, frameLength, o.snr);
+		if (s === null)
+			throw new Error(`a block of ${blen} bytes doesn't fit any frame at ${o.snr} dB`);
+		return Math.max(o.seconds, s);
+	};
+	const show = async () => {
+		try {
+			const E = await encoderFor(48000);
+			const opts = { seconds: seconds(E), snr: o.snr, lead: leadSymbols() };
+			const n = blocks();
+			info.textContent = `${n} ${n === 1 ? 'frame' : 'frames'} of ${frameLength} bytes, ${opts.seconds} s each${opts.seconds > o.seconds ? ' (longer, to hold a block)' : ''}, ${airtime(E, new Array(n).fill(frameLength), opts).toFixed(1)} s in all.`;
+		} catch (err) {
+			info.textContent = err.message;
+		}
+	};
+	count.oninput = show;
+	show();
+	send.onclick = async () => {
+		const ctx = audioOut();
+		send.disabled = true;
+		try {
+			if (!ctx || stepping)
+				throw new Error('already sending');
+			const E = await encoderFor(48000);
+			say('Preparing …');
+			const r = await station.resend(set, blocks());
+			if (!r)
+				throw new Error("this station no longer keeps all the blocks it decoded, or they don't rebuild the same root");
+			if (!r.frames.length)
+				throw new Error('every block of this post was sent already');
+			await transmit(ctx, { frames: r.frames, K: null, o: { ...o, seconds: seconds(E) } }, 'fragments', say, stop, stepBox.checked ? { next: send, finish } : null);
+		} catch (err) {
+			say(`Can't send: ${err.message}`);
+		}
+		send.disabled = false;
+	};
+	// closing ends what this dialog sends, so nothing is left waiting
+	const done = () => {
+		if (!stop.hidden)
+			stop.click();
+		if (!finish.hidden)
+			finish.click();
+		dialog.remove();
+	};
+	close.onclick = () => dialog.close();
+	dialog.onclose = done;
+	document.body.append(dialog);
+	dialog.showModal();
 }
 
 // ---------------------------------------------------------- output level

@@ -22,8 +22,8 @@
 // compromised key loses trust, name and avatar on all its posts, and its
 // frames arriving after the revocation are no longer precious.
 
-import { parse, walk, MalformedError, T } from './records.js';
-import { Reassembler } from './hydra.js';
+import { parse, walk, payload, MalformedError, T } from './records.js';
+import { Reassembler, blockHeader, setKey } from './hydra.js';
 import { blake2s } from './blake2s.js';
 
 export const hex = (a) => Array.from(a, (b) => b.toString(16).padStart(2, '0')).join('');
@@ -439,6 +439,46 @@ export async function openStation({ store, crypto = null, hydra = null }) {
 		await store.putData('relayed', { ...data, fill: !!on });
 	});
 
+	// New blocks of a decoded set, to send it again or on (SPEC.md,
+	// Fragments: relays decode, rebuild the tree and send blocks only if
+	// the rebuilt root matches): count blocks at random indices this
+	// station holds none of, each a frame of its own, so a station still
+	// short of blocks completes the set with any of them. Returns { frames,
+	// K, N, held } (held: the blocks this station has), or null if the set
+	// isn't decoded, its blocks are no longer all kept or the root differs.
+	// The blocks are made at once: the next decode replaces HYDRA's tree.
+	const resend = async (key, count) => {
+		const s = sets.get(key);
+		if (!hydra || !s?.facts)
+			return null;
+		const blocks = new Map();
+		for (const name of s.names) {
+			const bytes = await store.readFrame(name).catch(() => null);
+			const a = bytes && analyze(bytes);
+			if (!a?.nodes)
+				continue;
+			for (const [node] of walk(a.nodes))
+				if (node.type === T.FRAGMENT && node.verified === true && setKey(node.block) === key)
+					blocks.set(blockHeader(node.block).index, node.block);
+		}
+		const list = [...blocks.values()];
+		const head = list.length ? blockHeader(list[0]) : null;
+		if (!head || list.length < head.K || !hydra.decode(list.slice(0, head.K)))
+			return null;
+		const enc = hydra.regenerate();
+		if (!enc)
+			return null;
+		const want = Math.max(0, Math.min(count, enc.N - blocks.size));
+		const indices = new Set();
+		const r = new Uint32Array(1);
+		while (indices.size < want) {
+			const i = globalThis.crypto.getRandomValues(r)[0] % enc.N;
+			if (!blocks.has(i))
+				indices.add(i);
+		}
+		return { frames: [...indices].map((i) => payload([enc.fragment(i)])), K: enc.K, N: enc.N, held: blocks.size };
+	};
+
 	// sets of Fragments still waiting for blocks
 	const waiting = () => reassembler ? reassembler.missing() : [];
 
@@ -453,5 +493,5 @@ export async function openStation({ store, crypto = null, hydra = null }) {
 		return out.map(keyInfo);
 	};
 
-	return { analyze, receive, sent, replay, waiting, entries: () => all, keyInfo, seen, setTrust, isTrusted: (k) => trusted.has(k), relayable, relayed, relayFill, setRelayFill };
+	return { analyze, receive, sent, replay, waiting, resend, entries: () => all, keyInfo, seen, setTrust, isTrusted: (k) => trusted.has(k), relayable, relayed, relayFill, setRelayFill };
 }

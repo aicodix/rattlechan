@@ -49,7 +49,9 @@ const fixed = (v, scale, digits) => (v / scale).toFixed(digits);
 //     station's own keys, which are always trusted
 //   trust(hex, on) is called when the user asks to trust or not
 //   reply(id) when the user wants to answer a post
-let station = { keyInfo: (key) => ({ key, trusted: false }), trust: () => {}, reply: () => {} };
+//   setOf(id) -> the decoded fragment set a post arrived in, or null
+//   resend(set) when the user wants to send new blocks of that set
+let station = { keyInfo: (key) => ({ key, trusted: false }), trust: () => {}, reply: () => {}, setOf: () => null, resend: () => {} };
 export const configure = (s) => {
 	station = s;
 };
@@ -588,7 +590,16 @@ function post(n, key) {
 	if (n.id && !n.dropped) {
 		const b = el('button.small.reply', 'Reply');
 		b.onclick = () => station.reply(n.id);
-		e.append(el('div.post-actions', b));
+		const actions = el('div.post-actions', b);
+		// in a thread, a post that came in fragments can go out again; the
+		// log has the button on its reassembled payload instead
+		const set = inThread ? station.setOf(n.id) : null;
+		if (set) {
+			const again = el('button.small', 'Send again');
+			again.onclick = () => station.resend(set);
+			actions.append(again);
+		}
+		e.append(actions);
 	}
 	return e;
 }
@@ -683,8 +694,11 @@ function entryBox(e) {
 		box.append(nodes(e.nodes));
 	}
 	for (const f of e.fragments) {
-		if (f.nodes)
-			box.append(el('div.box', el('div.box-head.ok', `reassembled, ${bytes(f.used)}`), nodes(f.nodes)));
+		if (f.nodes) {
+			const again = el('button.small', 'Send again');
+			again.onclick = () => station.resend(f.key);
+			box.append(el('div.box', el('div.box-head.ok.row-between', el('span', `reassembled, ${bytes(f.used)}`), again), nodes(f.nodes)));
+		}
 		else if (f.error)
 			box.append(el('div.bad', `reassembled payload malformed: ${f.error}`));
 		else if (f.failed)
