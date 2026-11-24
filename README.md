@@ -1,3 +1,5 @@
+<p align="center"><img src="icon.svg" alt="A rattlesnake coiled round a board of notes, its rattle raised like an antenna" width="256"></p>
+
 # Rattlechan
 
 A message board that travels as sound. Ham, CB, PMR, a baby phone or a YouTube video: if it carries audio, it carries posts.
