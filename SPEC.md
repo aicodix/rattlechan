@@ -204,6 +204,7 @@ header (u32 LE): bit 31 hash flag (16/32 bytes), bit 30 reserved,
 - **Integrity:** every block carries a Merkle proof, so no one can corrupt a message; forged blocks fail or form their own root.
 - **Receivers** need any K valid blocks. K blocks with proofs are the complete state.
 - **Relays** decode, call `regenerate_tree` and send blocks only if the rebuilt root matches; otherwise they keep and send nothing.
+- **Sending a set again,** its author or a relay sends new blocks: random indices of the N the station holds none of, neither received nor sent, never the ones it has. Blocks a listener already has don't help it, while any new block does, and random indices keep stations sending the same set from repeating each other. The root and the post ID stay the same, so the blocks join sets still waiting; how many to send is up to the sender.
 - **Storage:** stations keep the K fragment frames, not a decoded copy. At startup the tree lists fragmented posts and decodes them when opened.
 
 ## Parsing and error handling
