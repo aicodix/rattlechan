@@ -24,8 +24,10 @@ const listed = [...sw.slice(sw.indexOf('const FILES = ['), sw.indexOf('];', sw.i
 // what the page loads, following the modules
 const needed = new Set(['./', 'index.html']);
 const html = await text('index.html');
+// links to other sites, such as the source code, aren't the app's files
 for (const m of html.matchAll(/(?:href|src)="([^"]+)"/g))
-	needed.add(m[1]);
+	if (!/^[a-z]+:/.test(m[1]))
+		needed.add(m[1]);
 const manifest = JSON.parse(await text('manifest.webmanifest'));
 for (const icon of manifest.icons)
 	needed.add(icon.src);
