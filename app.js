@@ -443,55 +443,112 @@ async function fillInputs(current) {
 	sel.value = [...sel.options].some((o) => o.value === current) ? current : '';
 }
 
-async function startListening() {
-	$('listen').disabled = true;
-	try {
-		receiver = await listen({
-			deviceId: $('input').value || recall('input') || null,
-			onReport: (r) => {
-				// the meter keeps showing the input, but the station
-				// doesn't decode itself
-				level(r.peak);
+// Listen and Stop are two buttons, as on the modem's page, so it is always
+// clear what a tap does, also when the audio hangs. Listen always starts
+// over with a new microphone and context, also when already listening:
+// iOS can leave a receiver that claims to run but hears nothing after the
+// app was in the background, and a microphone asked for while the old one
+// is still there doesn't work then. Neither button is ever disabled or
+// waits on the audio system, and a start that hangs and settles later,
+// after another Listen or a Stop, is stopped right away.
+let listening = 0;
+let heard = 0;
+let listeningText = '';
+let silentUntil = 0;
+
+function startListening() {
+	stopListening();
+	const attempt = listening;
+	$('receiver').textContent = 'Starting …';
+	status('starting the microphone');
+	listen({
+		deviceId: $('input').value || recall('input') || null,
+		onEnded: () => {
+			if (attempt !== listening)
+				return;
+			stopListening();
+			$('receiver').textContent = 'The microphone ended (the app was in the background?). Tap Listen to start again.';
+			$('receiver').classList.add('warn');
+			status('not listening', 'warn');
+		},
+		onReport: (r) => {
+			if (attempt !== listening)
+				return;
+			heard = Date.now();
+			// the meter keeps showing the input, but the station
+			// doesn't decode itself
+			level(r.peak);
 				if (Date.now() < deafUntil)
 					return;
-				if (r.events.length) {
-					enqueue(r.events);
-				} else if (!r.busy && receiving) {
-					receiving = false;
-					status('listening');
-				}
-			},
-		});
-		$('listen').textContent = 'Stop';
-		$('receiver').textContent = `Listening at ${receiver.rate} Hz${receiver.label ? ` on ${receiver.label}` : ''}.`;
+			if (r.events.length) {
+				enqueue(r.events);
+			} else if (!r.busy && receiving) {
+				receiving = false;
+				status('listening');
+			}
+		},
+	}).then((r) => {
+		if (attempt !== listening) {
+			r.stop();
+			return;
+		}
+		receiver = r;
+		heard = Date.now();
+		listeningText = `Listening at ${r.rate} Hz${r.label ? ` on ${r.label}` : ''}.`;
+		$('receiver').textContent = listeningText;
 		status('listening');
-		await fillInputs(receiver.deviceId);
-	} catch (err) {
-		receiver = null;
+		fillInputs(r.deviceId);
+	}, (err) => {
+		if (attempt !== listening)
+			return;
 		$('receiver').textContent = `Can't listen: ${err.message}`;
+		$('receiver').classList.add('warn');
 		status('not listening', 'warn');
-	}
-	$('listen').disabled = false;
+	});
 }
 
-async function stopListening() {
+function stopListening() {
+	listening += 1;
 	const r = receiver;
 	receiver = null;
-	await r?.stop();
+	r?.stop();
+	silentUntil = 0;
 	level(0);
-	$('listen').textContent = 'Listen';
 	$('receiver').textContent = 'Not listening.';
+	$('receiver').classList.remove('warn');
 	status('not listening');
 }
 
-$('listen').onclick = () => receiver ? stopListening() : startListening();
+$('listen').onclick = startListening;
+$('stop-listening').onclick = stopListening;
 
-$('input').onchange = async () => {
-	remember('input', $('input').value);
-	if (receiver) {
-		await stopListening();
-		await startListening();
+// iOS can leave the microphone silent after the app was in the background,
+// without any event: the worker reports at least every fifth of a second,
+// so a second without a report means no samples arrive. The warning
+// latches for two seconds instead of blinking.
+setInterval(() => {
+	if (!receiver)
+		return;
+	const now = Date.now();
+	if (now - heard > 1000) {
+		silentUntil = now + 2000;
+		level(0);
+		const h = receiver.health();
+		$('receiver').textContent = `No audio from the microphone (audio ${h.context}, microphone ${h.track}${h.muted ? ', muted' : ''}). Tap Listen to start over.`;
+		$('receiver').classList.add('warn');
+		status('no audio', 'warn');
+	} else if (silentUntil && now >= silentUntil) {
+		silentUntil = 0;
+		$('receiver').textContent = listeningText;
+		$('receiver').classList.remove('warn');
+		status('listening');
 	}
+}, 500);
+
+$('input').onchange = () => {
+	remember('input', $('input').value);
+	if (receiver)
+		startListening();
 };
 
 $('recording').onchange = async () => {

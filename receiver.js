@@ -37,10 +37,15 @@ async function audioContext() {
 }
 
 // Start listening on an input device (its deviceId, or the default).
-// onReport({ events, peak, busy }) is called as the decoder reports.
-// Call from a user gesture, so the AudioContext may start. Returns
-// { rate, deviceId, stop() }.
-export async function listen({ deviceId = null, onReport }) {
+// onReport({ events, peak, busy }) is called as the decoder reports, and
+// onEnded() when the microphone ends by itself (iOS ends it when the app
+// goes to the background). Call from a user gesture, so the AudioContext
+// may start. Returns { rate, deviceId, label, health(), stop() }; health()
+// gives the context's state and the microphone's for when nothing comes.
+// As on the modem's page, the microphone is asked for before the context:
+// Safari reconfigures the audio hardware when the microphone starts, which
+// stalls a context that already runs.
+export async function listen({ deviceId = null, onReport, onEnded = () => {} }) {
 	const stream = await navigator.mediaDevices.getUserMedia({
 		audio: {
 			deviceId: deviceId ? { exact: deviceId } : undefined,
@@ -51,10 +56,13 @@ export async function listen({ deviceId = null, onReport }) {
 		},
 	});
 	const parts = { stream };
-	const stop = async () => {
+	// never waits on the context: on iOS closing it may never settle
+	let stopped = false;
+	const stop = () => {
+		stopped = true;
 		parts.stream.getTracks().forEach((t) => t.stop());
 		parts.worker?.terminate();
-		await parts.ctx?.close();
+		parts.ctx?.close().catch(() => {});
 	};
 	try {
 		parts.ctx = await audioContext();
@@ -71,13 +79,19 @@ export async function listen({ deviceId = null, onReport }) {
 		ctx.createMediaStreamSource(stream).connect(node);
 		// some browsers only run nodes that lead to the speakers; it outputs silence
 		node.connect(ctx.destination);
-		await ctx.resume();
+		// not waited for: on iOS it may never settle
+		ctx.resume().catch(() => {});
 	} catch (err) {
-		await stop();
+		stop();
 		throw err;
 	}
 	const track = stream.getAudioTracks()[0];
-	return { rate: parts.ctx.sampleRate, deviceId: track?.getSettings().deviceId ?? null, label: track?.label ?? '', stop };
+	track?.addEventListener('ended', () => {
+		if (!stopped)
+			onEnded();
+	});
+	const health = () => ({ context: parts.ctx.state, track: track?.readyState ?? 'none', muted: !!track?.muted });
+	return { rate: parts.ctx.sampleRate, deviceId: track?.getSettings().deviceId ?? null, label: track?.label ?? '', health, stop };
 }
 
 // The audio inputs, with labels once the user allowed the microphone
