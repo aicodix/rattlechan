@@ -159,8 +159,8 @@ check('bad block dropped', typeof (await S.receive(bad)).error, 'string');
 	const avatarFrame = await T1.receive(R.payload([C.signRecords(anna, R.avatar(pic))]));
 	check('learned avatar', hex(T1.keyInfo(annaKey).avatar), hex(pic));
 	// outside the limits an avatar is ignored: not learned, not precious
-	const dusk = new Uint8Array(await file('examples/dusk.webp'));
-	const ignored = await T1.receive(R.payload([C.signRecords(anna, R.avatar(dusk))]));
+	const wide = new Uint8Array(await file('examples/pictures/wide.png'));
+	const ignored = await T1.receive(R.payload([C.signRecords(anna, R.avatar(wide))]));
 	check('ignored avatar: kept as a frame', ignored.error === undefined && ignored.tier, 'logged');
 	check('ignored avatar: not learned', hex(T1.keyInfo(annaKey).avatar), hex(pic));
 	check('ignored avatar: no avatar key', ignored.facts.avatarKeys.size, 0);

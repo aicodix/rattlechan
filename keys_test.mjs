@@ -103,7 +103,7 @@ await K.update(anna.key, { avatar: webp });
 check('avatar kept', hex((await K.list())[0].avatar), hex(webp));
 check('label unchanged', (await K.list())[0].label, 'Personal');
 await rejects('a PNG as avatar', () => K.update(anna.key, { avatar: Uint8Array.of(1, 2, 3) }));
-await rejects('a 192x120 picture as avatar', async () => K.update(anna.key, { avatar: new Uint8Array(await readFile(new URL('./examples/dusk.webp', import.meta.url))) }));
+await rejects('a 2000x40 picture as avatar, more than 2:1', async () => K.update(anna.key, { avatar: new Uint8Array(await readFile(new URL('./examples/pictures/wide.png', import.meta.url))) }));
 const withAvatar = await openStore(memoryBackend());
 await importArchive(withAvatar.backend, await exportArchive(store.backend, { secrets: true }));
 check('avatar in the secrets archive', hex((await (await openKeys(withAvatar, C)).list())[0].avatar), hex(webp));

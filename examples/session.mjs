@@ -6,7 +6,7 @@
 // All frames are sent as the GUI sends them, chained back to back: only the
 // first keeps the leading noise symbol, which opens VOX and squelches, so
 // there is no gap anywhere, only a quarter second of silence at both ends.
-// dusk.webp and avatar.webp (128x128, as avatars must be at least) next
+// dusk.webp and avatar.webp (128x128, the fewest pixels an avatar may have) next
 // to this file were drawn with Pillow.
 
 import * as R from '../records.js';

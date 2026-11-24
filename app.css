@@ -275,7 +275,8 @@ td input { width: 6em; min-height: 36px; padding: 4px 8px; }
 .id-0 { fill: var(--id-0); } .id-1 { fill: var(--id-1); } .id-2 { fill: var(--id-2); } .id-3 { fill: var(--id-3); }
 .id-4 { fill: var(--id-4); } .id-5 { fill: var(--id-5); } .id-6 { fill: var(--id-6); } .id-7 { fill: var(--id-7); }
 .face { display: inline-flex; flex: none; }
-.avatar { display: block; width: 32px; height: 32px; border-radius: 6px; object-fit: cover; }
+/* the whole avatar, fitted into its square, never cropped (SPEC.md, Avatar) */
+.avatar { display: block; width: 32px; height: 32px; border-radius: 6px; object-fit: contain; }
 
 .box-head.row-between { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; }
 .box-head.signer { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
@@ -328,6 +329,14 @@ button.trust { flex: none; }
 .crop-area canvas { display: block; }
 .crop-square { position: absolute; box-sizing: border-box; border: 2px solid var(--card); outline: 1px solid var(--fg); box-shadow: 0 0 0 100vmax rgb(0 0 0 / 0.5); }
 .crop-square:focus-visible { border-color: var(--accent); }
+/* corners to grab; the whole edge resizes too, the area takes the pointer */
+.crop-handle { position: absolute; width: 14px; height: 14px; box-sizing: border-box; background: var(--card); border: 1px solid var(--fg); border-radius: 3px; pointer-events: none; }
+/* inside the corners, so the picture's edge never cuts them off */
+.crop-handle.nw { left: 0; top: 0; }
+.crop-handle.ne { right: 0; top: 0; }
+.crop-handle.sw { left: 0; bottom: 0; }
+.crop-handle.se { right: 0; bottom: 0; }
+.crop-hint { margin: 8px 0 0; }
 .crop-dialog .field input[type=range] { accent-color: var(--accent); width: 100%; min-height: 32px; }
 .crop-dialog .row { justify-content: flex-end; margin: 8px 0 0; }
 .crop-info { min-height: 2.6em; margin: 4px 0 0; }

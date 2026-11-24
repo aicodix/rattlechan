@@ -563,9 +563,17 @@ check('Request-Root is 19 or 35 bytes', R.requestRoot(1, fill(16, 0)).length + '
 	check('avatar: 512x512 lossless', R.avatarProblem(vp8l(512, 512)), null);
 	check('avatar: animated 256x256 of 8192 bytes', R.avatarProblem(vp8x(256, 256, 8192)), null);
 	check('avatar: 8193 bytes', R.avatarProblem(vp8x(256, 256, 8193)), '8193 bytes, more than 8192');
-	check('avatar: 127x127', R.avatarProblem(vp8(127, 127)), '127x127, not from 128x128 to 512x512');
-	check('avatar: 513x513', R.avatarProblem(vp8x(513, 513)), '513x513, not from 128x128 to 512x512');
-	check('avatar: not square', R.avatarProblem(vp8l(256, 200)), '256x200, not square');
+	check('avatar: 127x127', R.avatarProblem(vp8(127, 127)), '127x127, 16129 pixels, not from 16384 to 262144');
+	check('avatar: 513x513', R.avatarProblem(vp8x(513, 513)), '513x513, 263169 pixels, not from 16384 to 262144');
+	check('avatar: not square, 256x200', R.avatarProblem(vp8l(256, 200)), null);
+	check('avatar: not square, 220x223', R.avatarProblem(vp8x(220, 223)), null);
+	check('avatar: 2:1, 362x181', R.avatarProblem(vp8x(362, 181)), null);
+	check('avatar: 1:2, 128x256', R.avatarProblem(vp8(128, 256)), null);
+	check('avatar: 724x362, the widest of the most pixels', R.avatarProblem(vp8x(724, 362)), null);
+	check('avatar: just over 2:1', R.avatarProblem(vp8x(363, 181)), '363x181, more than 2:1');
+	check('avatar: 1:3', R.avatarProblem(vp8l(100, 300)), '100x300, more than 2:1');
+	check('avatar: 2:1 but too few pixels', R.avatarProblem(vp8(180, 90)), '180x90, 16200 pixels, not from 16384 to 262144');
+	check('avatar: 2:1 but too many pixels', R.avatarProblem(vp8x(726, 363)), '726x363, 263538 pixels, not from 16384 to 262144');
 	// the other formats, by their headers alone
 	const be32 = (v) => [v >>> 24, v >> 16 & 255, v >> 8 & 255, v & 255];
 	const png = (w, h) => Uint8Array.of(0x89, 0x50, 0x4E, 0x47, 13, 10, 26, 10, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, ...be32(w), ...be32(h), 8, 6, 0, 0, 0, 0, 0, 0, 0);
@@ -574,14 +582,15 @@ check('Request-Root is 19 or 35 bytes', R.requestRoot(1, fill(16, 0)).length + '
 	check('avatar: a PNG', R.avatarProblem(png(256, 256)), null);
 	check('avatar: a JPEG', R.avatarProblem(jpeg(192, 192)), null);
 	check('avatar: a GIF', R.avatarProblem(gif(128, 128)), null);
-	check('avatar: a JPEG not square', R.avatarProblem(jpeg(192, 160)), '192x160, not square');
-	check('avatar: a PNG too large', R.avatarProblem(png(1024, 1024)), '1024x1024, not from 128x128 to 512x512');
+	check('avatar: a JPEG not square', R.avatarProblem(jpeg(192, 160)), null);
+	check('avatar: a JPEG too wide', R.avatarProblem(jpeg(400, 160)), '400x160, more than 2:1');
+	check('avatar: a PNG too large', R.avatarProblem(png(1024, 1024)), '1024x1024, 1048576 pixels, not from 16384 to 262144');
 	check('avatar: a PNG signature alone', R.avatarProblem(Uint8Array.of(0x89, 0x50, 0x4E, 0x47, 13, 10, 26, 10)), 'not a PNG, JPEG, GIF or WebP picture');
 
 	// a received Avatar outside the limits is ignored, not malformed
 	const small = R.parse(R.payload([R.avatar(vp8(64, 64))]));
 	check('parse: small avatar kept as a record', small[0].type, R.T.AVATAR);
-	check('parse: small avatar ignored', small[0].ignored, '64x64, not from 128x128 to 512x512');
+	check('parse: small avatar ignored', small[0].ignored, '64x64, 4096 pixels, not from 16384 to 262144');
 	check('parse: good avatar not ignored', R.parse(R.payload([R.avatar(vp8(200, 200))]))[0].ignored, null);
 }
 

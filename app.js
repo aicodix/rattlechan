@@ -10,7 +10,7 @@ import { openStation } from './station.js';
 import { listen, inputs, decodeRecording } from './receiver.js';
 import { sizes, chainParts, chainModes, compose, composeAvatar, bundled, attachment, isCodec2File, fileName, FILES_MAX, FILES_MAX_BYTES, fill, pack, split, pick, secondsFor, airtime, needs, SECONDS_DEFAULT, SNR_DEFAULT, REDUNDANCY_DEFAULT } from './sender.js';
 import { wake, quiet, encoderFor, play, playParts, LEVEL_DEFAULT, LEVEL_MIN } from './transmitter.js';
-import { encodeCall, decodeText, fromCall, fromName, textUTF8, webpSize, avatarProblem, AVATAR_MAX_BYTES, AVATAR_MIN_SIDE, AVATAR_MAX_SIDE, signed as signedRecord, payload as framePayload, encodeLength, walk, T } from './records.js';
+import { encodeCall, decodeText, fromCall, fromName, textUTF8, webpSize, avatarProblem, AVATAR_MAX_BYTES, AVATAR_MIN_PIXELS, AVATAR_MAX_PIXELS, AVATAR_MAX_RATIO, signed as signedRecord, payload as framePayload, encodeLength, walk, T } from './records.js';
 import { smallestText } from './encodings.js';
 import { openKeys } from './keys.js';
 import { conversations, boards } from './tree.js';
@@ -1014,7 +1014,7 @@ function keyCard(k) {
 			avatarInfo.textContent = err.message;
 		});
 	else if (!k.avatar)
-		avatarInfo.textContent = 'No avatar: stations show the identicon. Choose any picture or photo and the square of it to use. A square PNG, JPEG, GIF or WebP picture or animation from 128x128 to 512x512 pixels in at most 8 KiB goes as it is.';
+		avatarInfo.textContent = 'No avatar: stations show the identicon. Choose any picture or photo and the part of it to use. A PNG, JPEG, GIF or WebP picture or animation of 16K to 256K pixels (128x128 to 512x512), at most 2:1 either way, in at most 8 KiB goes as it is.';
 	const revoke = view.el('button.small', 'Revoke…');
 	revoke.hidden = reason.options.length === 0;
 	revoke.onclick = () => {
@@ -1515,37 +1515,74 @@ async function shrink(bytes, type, budget) {
 	return encodedOf(out, 0.7);
 }
 
-// An avatar from the square of side s at x, y of a decoded picture:
-// halved until it is at most 512 pixels a side (never below 128), as a
-// WebP or JPEG (madeType) of falling quality until it fits 8 KiB, halved
-// again if it still doesn't.
-async function avatarOf(img, x, y, s) {
-	// the sides halving reaches from at most 512 down to 128; a square of
-	// less than 128 is drawn at 128
-	let side = s;
-	while (side > AVATAR_MAX_SIDE)
-		side = Math.floor(side / 2);
-	const sides = [Math.max(AVATAR_MIN_SIDE, side)];
-	while (Math.floor(side / 2) >= AVATAR_MIN_SIDE)
-		sides.push(side = Math.floor(side / 2));
-	for (const [i, n] of sides.entries()) {
-		const out = halving(img, x, y, s, s, n * n, n);
-		const last = i === sides.length - 1;
+// the part of img from x, y of w by h drawn at ow by oh on white, halved
+// on the way down while that stays at least as large, for a smooth result
+function drawnAt(img, x, y, w, h, ow, oh) {
+	let src = img;
+	while (Math.floor(w / 2) >= ow && Math.floor(h / 2) >= oh) {
+		const half = canvasOf(Math.floor(w / 2), Math.floor(h / 2));
+		half.getContext('2d').drawImage(src, x, y, w, h, 0, 0, half.width, half.height);
+		[src, x, y, w, h] = [half, 0, 0, half.width, half.height];
+	}
+	const out = canvasOf(ow, oh);
+	const ctx = out.getContext('2d');
+	ctx.imageSmoothingQuality = 'high';
+	ctx.fillStyle = '#fff';
+	ctx.fillRect(0, 0, ow, oh);
+	ctx.drawImage(src, x, y, w, h, 0, 0, ow, oh);
+	return out;
+}
+
+// The sizes an avatar of a w by h part of a picture is tried at: halved
+// until it has at most 256K pixels, then halved again while it keeps at
+// least 16K; a part of fewer than 16K pixels is drawn larger, up to them
+// (SPEC.md, Avatar)
+function avatarSizes(w, h) {
+	while (w * h > AVATAR_MAX_PIXELS) {
+		w = Math.floor(w / 2);
+		h = Math.floor(h / 2);
+	}
+	if (w * h < AVATAR_MIN_PIXELS) {
+		const k = Math.sqrt(AVATAR_MIN_PIXELS / (w * h));
+		w = Math.ceil(w * k);
+		h = Math.ceil(h * k);
+	}
+	const sizes = [[w, h]];
+	while (Math.floor(w / 2) * Math.floor(h / 2) >= AVATAR_MIN_PIXELS)
+		sizes.push([w = Math.floor(w / 2), h = Math.floor(h / 2)]);
+	return sizes;
+}
+
+// An avatar from the w by h part at x, y of a decoded picture, at the
+// sizes avatarSizes() gives, as a WebP or JPEG (madeType) of falling
+// quality until it fits 8 KiB
+async function avatarOf(img, x, y, w, h) {
+	const sizes = avatarSizes(w, h);
+	for (const [i, [ow, oh]] of sizes.entries()) {
+		const out = drawnAt(img, x, y, w, h, ow, oh);
+		const last = i === sizes.length - 1;
 		for (const quality of last ? [0.8, 0.7, 0.6, 0.5, 0.4, 0.3] : [0.8, 0.7, 0.6, 0.5]) {
 			const made = await encodedOf(out, quality);
-			if (made.length <= AVATAR_MAX_BYTES)
+			if (made.length <= AVATAR_MAX_BYTES && !avatarProblem(made))
 				return made;
 		}
 	}
-	throw new RangeError(`it doesn't fit in 8 KiB even at ${sides.at(-1)}x${sides.at(-1)}`);
+	const [ow, oh] = sizes.at(-1);
+	throw new RangeError(`it doesn't fit in 8 KiB even at ${ow}x${oh}`);
 }
 
+// the fewest pixels of the picture the cropper's frame keeps on a side
+const CROP_MIN_SIDE = 32;
+// how close to an edge of the frame, in screen pixels, a drag resizes it
+const CROP_GRIP = 24;
+
 // Cropping a still picture for an avatar: the picture drawn to fit the
-// screen with a square over it, moved by dragging anywhere on it or with
-// the arrow keys, sized with a slider from 128 pixels of the picture (or
-// its shorter side, if less) up to its shorter side. The whole of a
-// picture already within the limits goes as it is. Resolves to the
-// avatar's bytes, or null if cancelled.
+// screen with a frame over it, the largest centred square first, the rest
+// dimmed. Dragging inside the frame (or beside it) moves it, dragging an
+// edge or a corner resizes it, its shape held between 2:1 and 1:2; the
+// arrow keys move it, with Shift they resize it. The whole of a picture
+// already within the limits goes as it is. Resolves to the avatar's
+// bytes, or null if cancelled.
 async function cropAvatar(bytes, pic) {
 	const img = await createImageBitmap(new Blob([bytes], { type: pic.type }));
 	const W = img.width, H = img.height, S = Math.min(W, H);
@@ -1554,29 +1591,62 @@ async function cropAvatar(bytes, pic) {
 	const ctx = preview.getContext('2d');
 	ctx.imageSmoothingQuality = 'high';
 	ctx.drawImage(halving(img, 0, 0, W, H, preview.width * preview.height * 4), 0, 0, preview.width, preview.height);
-	let side = S, x = (W - S) / 2, y = (H - S) / 2;
-	const square = view.el('div.crop-square');
-	square.tabIndex = 0;
-	square.setAttribute('aria-label', 'the square to crop, moved with the arrow keys');
-	const area = view.el('div.crop-area', preview, square);
+	const least = Math.min(CROP_MIN_SIDE, S);
+	// the frame, in pixels of the picture
+	let x = (W - S) / 2, y = (H - S) / 2, w = S, h = S;
+	const frame = view.el('div.crop-square', ...['nw', 'ne', 'sw', 'se'].map((c) => view.el(`span.crop-handle.${c}`)));
+	frame.tabIndex = 0;
+	frame.setAttribute('aria-label', 'the part to use: the arrow keys move it, with Shift they resize it');
+	const area = view.el('div.crop-area', preview, frame);
 	area.style.width = `${preview.width}px`;
-	const size = view.el('input');
-	Object.assign(size, { type: 'range', min: Math.min(AVATAR_MIN_SIDE, S), max: S, value: S });
 	const info = view.el('p.dim.crop-info', ' ');
 	const cancel = view.el('button', 'Cancel');
 	const use = view.el('button.primary', 'Use');
 	const dialog = view.el('dialog.picture-dialog.crop-dialog', area,
-		view.el('label.field', 'Size', size), info, view.el('div.row', cancel, use));
+		view.el('p.dim.crop-hint', 'Drag inside to move, drag an edge or a corner to change the size and shape, from 2:1 to 1:2.'),
+		info, view.el('div.row', cancel, use));
 	const place = () => {
-		x = Math.min(Math.max(0, x), W - side);
-		y = Math.min(Math.max(0, y), H - side);
-		Object.assign(square.style, { left: `${x * k}px`, top: `${y * k}px`, width: `${side * k}px`, height: `${side * k}px` });
+		Object.assign(frame.style, { left: `${x * k}px`, top: `${y * k}px`, width: `${w * k}px`, height: `${h * k}px` });
 	};
-	// the avatar the square makes now
-	const make = () => {
-		const [cx, cy] = [Math.round(x), Math.round(y)];
-		return side === W && W === H && !avatarProblem(bytes) ? Promise.resolve(bytes) : avatarOf(img, cx, cy, side);
+	// The frame from edges L, T, R, B, the ones being dragged in drag
+	// (l, t, r, b): within the picture, at least least a side, and its
+	// shape within 2:1 and 1:2. A shape too long is put right by the
+	// dragged edges: shortening the long side when it is the one dragged,
+	// otherwise giving the short side back what the drag took (within
+	// the picture), and shortening the long side if that isn't enough.
+	const settle = (L, T, R, B, drag) => {
+		const horizontal = drag.l || drag.r, vertical = drag.t || drag.b;
+		L = Math.max(0, L);
+		T = Math.max(0, T);
+		R = Math.min(W, R);
+		B = Math.min(H, B);
+		if (R - L < least)
+			drag.l ? L = R - least : R = L + least;
+		if (B - T < least)
+			drag.t ? T = B - least : B = T + least;
+		const fix = (long, short, setLong, setShort, longDragged) => {
+			if (long() <= AVATAR_MAX_RATIO * short())
+				return;
+			if (!longDragged)
+				setShort(long() / AVATAR_MAX_RATIO);
+			if (long() > AVATAR_MAX_RATIO * short())
+				setLong(AVATAR_MAX_RATIO * short());
+		};
+		// the right or left edge, or the bottom or top one, as dragged
+		const width = (n) => drag.l ? L = Math.max(0, R - n) : R = Math.min(W, L + n);
+		const height = (n) => drag.t ? T = Math.max(0, B - n) : B = Math.min(H, T + n);
+		fix(() => R - L, () => B - T, width, height, horizontal);
+		fix(() => B - T, () => R - L, height, width, vertical);
+		[x, y, w, h] = [L, T, R - L, B - T];
 	};
+	// moved by dx, dy, kept within the picture
+	const moveBy = (dx, dy) => {
+		x = Math.min(Math.max(0, x + dx), W - w);
+		y = Math.min(Math.max(0, y + dy), H - h);
+	};
+	// the avatar the frame makes now
+	const whole = () => Math.round(x) === 0 && Math.round(y) === 0 && Math.round(w) === W && Math.round(h) === H;
+	const make = () => whole() && !avatarProblem(bytes) ? Promise.resolve(bytes) : avatarOf(img, Math.round(x), Math.round(y), Math.round(w), Math.round(h));
 	let shown = 0, timer = 0;
 	const estimate = () => {
 		clearTimeout(timer);
@@ -1586,49 +1656,59 @@ async function cropAvatar(bytes, pic) {
 				const b = await make();
 				const p = pictureInfo(b);
 				if (at === shown)
-					info.textContent = `${side}x${side} of the picture, sent as ${b === bytes ? 'it is, ' : ''}${p.width}x${p.height} ${FORMATS[p.type]} of ${view.bytes(b.length)}`;
+					info.textContent = `${Math.round(w)}x${Math.round(h)} of the picture, sent as ${b === bytes ? 'it is, ' : ''}${p.width}x${p.height} ${FORMATS[p.type]} of ${view.bytes(b.length)}`;
 			} catch (err) {
 				if (at === shown)
 					info.textContent = err.message;
 			}
 		}, 300);
 	};
-	let last = null;
+	// a drag: where it started, the frame then, and which edges it holds
+	let drag = null;
 	area.onpointerdown = (e) => {
 		area.setPointerCapture(e.pointerId);
-		last = [e.clientX, e.clientY];
+		const r = frame.getBoundingClientRect();
+		const near = (a, b) => Math.abs(a - b) <= CROP_GRIP;
+		const inside = e.clientX > r.left - CROP_GRIP && e.clientX < r.right + CROP_GRIP && e.clientY > r.top - CROP_GRIP && e.clientY < r.bottom + CROP_GRIP;
+		const edges = inside ? { l: near(e.clientX, r.left), r: near(e.clientX, r.right), t: near(e.clientY, r.top), b: near(e.clientY, r.bottom) } : {};
+		// a small frame: the edge nearer the pointer
+		if (edges.l && edges.r)
+			edges[Math.abs(e.clientX - r.left) < Math.abs(e.clientX - r.right) ? 'r' : 'l'] = false;
+		if (edges.t && edges.b)
+			edges[Math.abs(e.clientY - r.top) < Math.abs(e.clientY - r.bottom) ? 'b' : 't'] = false;
+		drag = { at: [e.clientX, e.clientY], was: [x, y, w, h], edges, resize: Object.values(edges).some(Boolean) };
 		e.preventDefault();
 	};
 	area.onpointermove = (e) => {
-		if (!last)
+		if (!drag)
 			return;
-		x += (e.clientX - last[0]) / k;
-		y += (e.clientY - last[1]) / k;
-		last = [e.clientX, e.clientY];
+		const dx = (e.clientX - drag.at[0]) / k, dy = (e.clientY - drag.at[1]) / k;
+		const [x0, y0, w0, h0] = drag.was;
+		if (drag.resize) {
+			const d = drag.edges;
+			settle(x0 + (d.l ? dx : 0), y0 + (d.t ? dy : 0), x0 + w0 + (d.r ? dx : 0), y0 + h0 + (d.b ? dy : 0), d);
+		} else {
+			[x, y] = [x0, y0];
+			moveBy(dx, dy);
+		}
 		place();
 	};
 	area.onpointerup = area.onpointercancel = () => {
-		if (last)
+		if (drag)
 			estimate();
-		last = null;
+		drag = null;
 	};
-	square.onkeydown = (e) => {
-		const step = Math.max(1, Math.round(side / 20));
+	frame.onkeydown = (e) => {
+		const step = Math.max(1, Math.round(Math.min(w, h) / 20));
 		const moves = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
 		if (!moves[e.key])
 			return;
 		e.preventDefault();
-		x += moves[e.key][0];
-		y += moves[e.key][1];
-		place();
-		estimate();
-	};
-	// resized about its centre
-	size.oninput = () => {
-		const n = Number(size.value);
-		x += (side - n) / 2;
-		y += (side - n) / 2;
-		side = n;
+		const [dx, dy] = moves[e.key];
+		if (e.shiftKey)
+			settle(x, y, x + w + dx, y + h + dy, { r: true, b: true });
+		else
+			moveBy(dx, dy);
 		place();
 		estimate();
 	};
@@ -1636,7 +1716,7 @@ async function cropAvatar(bytes, pic) {
 	dialog.showModal();
 	place();
 	estimate();
-	square.focus();
+	frame.focus();
 	try {
 		return await new Promise((resolve) => {
 			cancel.onclick = () => resolve(null);

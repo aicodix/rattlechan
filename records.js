@@ -416,11 +416,13 @@ function checkValue(node, opts) {
 	}
 }
 
-// Avatars are square PNG, JPEG, GIF or WebP pictures or animations from
-// 128x128 to 512x512 pixels in at most 8 KiB (SPEC.md, Avatar)
+// Avatars are PNG, JPEG, GIF or WebP pictures or animations of 16K to
+// 256K pixels (128x128 to 512x512), at most 2:1 either way, in at most
+// 8 KiB (SPEC.md, Avatar)
 export const AVATAR_MAX_BYTES = 8192;
-export const AVATAR_MIN_SIDE = 128;
-export const AVATAR_MAX_SIDE = 512;
+export const AVATAR_MIN_PIXELS = 128 * 128;
+export const AVATAR_MAX_PIXELS = 512 * 512;
+export const AVATAR_MAX_RATIO = 2;
 
 // why an avatar is ignored, or null if it is within the limits
 export function avatarProblem(b) {
@@ -429,10 +431,11 @@ export function avatarProblem(b) {
 		return 'not a PNG, JPEG, GIF or WebP picture';
 	if (b.length > AVATAR_MAX_BYTES)
 		return `${b.length} bytes, more than ${AVATAR_MAX_BYTES}`;
-	if (size.width !== size.height)
-		return `${size.width}x${size.height}, not square`;
-	if (size.width < AVATAR_MIN_SIDE || size.width > AVATAR_MAX_SIDE)
-		return `${size.width}x${size.height}, not from ${AVATAR_MIN_SIDE}x${AVATAR_MIN_SIDE} to ${AVATAR_MAX_SIDE}x${AVATAR_MAX_SIDE}`;
+	const { width: w, height: h } = size;
+	if (w * h < AVATAR_MIN_PIXELS || w * h > AVATAR_MAX_PIXELS)
+		return `${w}x${h}, ${w * h} pixels, not from ${AVATAR_MIN_PIXELS} to ${AVATAR_MAX_PIXELS}`;
+	if (Math.max(w, h) > AVATAR_MAX_RATIO * Math.min(w, h))
+		return `${w}x${h}, more than ${AVATAR_MAX_RATIO}:1`;
 	return null;
 }
 
