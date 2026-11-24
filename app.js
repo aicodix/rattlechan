@@ -410,14 +410,23 @@ const level = (peak) => {
 	$('level').classList.toggle('hot', Date.now() < hotUntil);
 };
 
-// a phone stops the microphone once its screen goes dark
+// the screen stays on as long as the app is open: a phone stops the
+// microphone and the audio once its screen goes dark; the browser drops
+// the lock when the page is hidden, so it is taken again when it shows,
+// and on a tap where it was refused without one (or the system dropped it)
+let waking = false;
 async function keepAwake() {
+	if (waking || (wakeLock && !wakeLock.released) || document.visibilityState !== 'visible' || !('wakeLock' in navigator))
+		return;
+	waking = true;
 	try {
-		if (receiver && document.visibilityState === 'visible' && 'wakeLock' in navigator)
-			wakeLock = await navigator.wakeLock.request('screen');
+		wakeLock = await navigator.wakeLock.request('screen');
 	} catch {}
+	waking = false;
 }
 document.addEventListener('visibilitychange', keepAwake);
+document.addEventListener('pointerdown', keepAwake);
+keepAwake();
 
 async function fillInputs(current) {
 	const sel = $('input');
@@ -457,7 +466,6 @@ async function startListening() {
 		$('receiver').textContent = `Listening at ${receiver.rate} Hz${receiver.label ? ` on ${receiver.label}` : ''}.`;
 		status('listening');
 		await fillInputs(receiver.deviceId);
-		keepAwake();
 	} catch (err) {
 		receiver = null;
 		$('receiver').textContent = `Can't listen: ${err.message}`;
@@ -470,8 +478,6 @@ async function stopListening() {
 	const r = receiver;
 	receiver = null;
 	await r?.stop();
-	wakeLock?.release().catch(() => {});
-	wakeLock = null;
 	level(0);
 	$('listen').textContent = 'Listen';
 	$('receiver').textContent = 'Not listening.';
