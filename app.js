@@ -1373,17 +1373,17 @@ function describeFile(a) {
 	const size = view.bytes(a.bytes.length);
 	const pic = pictureInfo(a.bytes);
 	if (pic)
-		return `${pic.type.slice(6).toUpperCase()} picture${pic.animated ? ', animated' : ''}, ${pic.width}x${pic.height}, ${size}${huge(pic) ? ', so large that stations warn before drawing it' : ''}`;
+		return `${FORMATS[pic.type]} picture${pic.animated ? ', animated' : ''}, ${pic.width}x${pic.height}, ${size}${huge(pic) ? ', so large that stations warn before drawing it' : ''}`;
 	if (isCodec2File(a.bytes))
 		return `Codec2 voice, mode ${CODEC2_MODES[a.bytes[5]] ?? a.bytes[5]}, ${view.bytes(a.bytes.length - 7)} of voice`;
 	return `${a.type || 'a file of unknown type'}, ${size}`;
 }
 
 // A still picture made smaller to save airtime: width and height halved
-// until it has at most a budget of pixels, as in Assempix, then a JPEG of
-// quality 0.7, a white background replacing transparency. Halving keeps
-// it sharp. Drawing it anew leaves the camera's metadata (and any GPS
-// position in it) behind.
+// until it has at most a budget of pixels, as in Assempix, then a WebP or
+// JPEG (madeType) of quality 0.7, a white background replacing
+// transparency. Halving keeps it sharp. Drawing it anew leaves the
+// camera's metadata (and any GPS position in it) behind.
 const BUDGETS = [14, 15, 16, 17, 18, 19, 20].map((b) => 1 << b);
 // what a larger still picture is shrunk to when attached
 const BUDGET_DEFAULT = 1 << 18;
@@ -1420,19 +1420,27 @@ function halving(img, x, y, w, h, budget, side = null) {
 	return out;
 }
 
-const jpegOf = async (canvas, quality) => new Uint8Array(await (await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality))).arrayBuffer());
+const blobOf = (canvas, type, quality) => new Promise((resolve) => canvas.toBlob(resolve, type, quality));
+
+// What pictures are made as: WebP where the browser encodes it, about a
+// third smaller than JPEG at the same quality, JPEG elsewhere (Safari).
+// A canvas that can't encode a type gives a PNG instead. Every browser
+// that runs Rattlechan decodes WebP.
+let madeAs = null;
+const madeType = async () => madeAs ??= (await blobOf(canvasOf(1, 1), 'image/webp', 0.7))?.type === 'image/webp' ? 'image/webp' : 'image/jpeg';
+const encodedOf = async (canvas, quality) => new Uint8Array(await (await blobOf(canvas, await madeType(), quality)).arrayBuffer());
 
 async function shrink(bytes, type, budget) {
 	const img = await createImageBitmap(new Blob([bytes], { type }));
 	const out = halving(img, 0, 0, img.width, img.height, budget);
 	img.close();
-	return jpegOf(out, 0.7);
+	return encodedOf(out, 0.7);
 }
 
 // An avatar from the square of side s at x, y of a decoded picture:
 // halved until it is at most 512 pixels a side (never below 128), as a
-// JPEG of falling quality until it fits 8 KiB, halved again if it still
-// doesn't. Every browser encodes JPEG; not every one WebP.
+// WebP or JPEG (madeType) of falling quality until it fits 8 KiB, halved
+// again if it still doesn't.
 async function avatarOf(img, x, y, s) {
 	// the sides halving reaches from at most 512 down to 128; a square of
 	// less than 128 is drawn at 128
@@ -1446,9 +1454,9 @@ async function avatarOf(img, x, y, s) {
 		const out = halving(img, x, y, s, s, n * n, n);
 		const last = i === sides.length - 1;
 		for (const quality of last ? [0.8, 0.7, 0.6, 0.5, 0.4, 0.3] : [0.8, 0.7, 0.6, 0.5]) {
-			const jpeg = await jpegOf(out, quality);
-			if (jpeg.length <= AVATAR_MAX_BYTES)
-				return jpeg;
+			const made = await encodedOf(out, quality);
+			if (made.length <= AVATAR_MAX_BYTES)
+				return made;
 		}
 	}
 	throw new RangeError(`it doesn't fit in 8 KiB even at ${sides.at(-1)}x${sides.at(-1)}`);
@@ -1610,7 +1618,13 @@ function shrinkPicker(a) {
 
 // an attachment halved to a budget of pixels, or the original with null
 async function resize(a, budget) {
-	Object.assign(a, budget ? { bytes: await shrink(a.original.bytes, a.original.type, budget), type: 'image/jpeg', name: a.original.name && fileName(a.original.name.replace(/\.[a-z0-9]+$/, '') + '.jpg') } : a.original, { budget });
+	if (!budget) {
+		Object.assign(a, a.original, { budget });
+		return;
+	}
+	const bytes = await shrink(a.original.bytes, a.original.type, budget);
+	const type = pictureInfo(bytes).type;
+	Object.assign(a, { bytes, type, name: a.original.name && fileName(a.original.name.replace(/\.[a-z0-9]+$/, '') + (type === 'image/webp' ? '.webp' : '.jpg')), budget });
 }
 
 function showAttachments() {
