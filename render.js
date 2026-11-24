@@ -146,12 +146,16 @@ export function face(key, size = 32) {
 	return withAvatar(icon, info.avatar);
 }
 
-// an avatar (WebP bytes) in place of icon once it loads, an animated one
-// still until hovered or touched; icon stays if it can't be drawn
+// an avatar (PNG, JPEG, GIF or WebP bytes) in place of icon once it
+// loads, an animated one still until hovered or touched; icon stays if it
+// can't be drawn
 export function withAvatar(icon, avatar) {
 	const wrap = el('span.face', icon);
-	const blob = new Blob([avatar], { type: 'image/webp' });
-	(animatedWebP(avatar) ? animated(blob, 'avatar', 'avatar') : Promise.resolve(Object.assign(el('img.avatar'), { src: URL.createObjectURL(blob), alt: 'avatar' })))
+	const info = pictureInfo(avatar);
+	if (!info)
+		return wrap;
+	const blob = new Blob([avatar], { type: info.type });
+	(info.animated ? animated(blob, 'avatar', 'avatar') : Promise.resolve(Object.assign(el('img.avatar'), { src: URL.createObjectURL(blob), alt: 'avatar' })))
 		.then((pic) => icon.replaceWith(pic))
 		.catch(() => {});
 	return wrap;
@@ -254,11 +258,6 @@ function position(n) {
 	a.href = `geo:${lat},${lon}`;
 	return el('div.part', '📍 ', a, el('span.dim', ` fix ${when(n.time * 1000)}`));
 }
-
-// Animated WebP: a VP8X chunk first, with its animation flag set
-export const animatedWebP = (b) => b.length > 20
-	&& String.fromCharCode(...b.subarray(0, 4), ...b.subarray(8, 16)) === 'RIFFWEBPVP8X'
-	&& (b[20] & 0x02) !== 0;
 
 // the first frame of a picture, on a canvas
 async function still(blob) {
@@ -430,9 +429,12 @@ export function fileOf(n) {
 	let data, ext;
 	switch (n.type) {
 	case T.WEBP:
-	case T.AVATAR:
 		data = n.body;
 		ext = 'webp';
+		break;
+	case T.AVATAR:
+		data = n.body;
+		ext = EXTENSIONS[pictureInfo(n.body)?.type] ?? 'bin';
 		break;
 	case T.CODEC2:
 		data = new Uint8Array(6 + n.body.length);

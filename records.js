@@ -1,10 +1,13 @@
 // Rattlechan v0 records: parser and encoder, as specified in SPEC.md.
-// No dependencies besides blake2s.js. Signing and HYDRA stay outside:
+// Only needs blake2s.js, scsu.js and pictures.js. Signing and HYDRA stay outside:
 // the parser takes an optional verify callback, the encoder takes
 // signatures or a sign callback.
 
 import { blake2s } from './blake2s.js';
 import { decode as scsuDecode } from './scsu.js';
+import { pictureInfo, webpSize } from './pictures.js';
+
+export { webpSize };
 
 // "Rattlechan-v0" followed by a zero byte
 export const CONTEXT = Uint8Array.from('Rattlechan-v0\0', (c) => c.charCodeAt(0));
@@ -413,44 +416,17 @@ function checkValue(node, opts) {
 	}
 }
 
-// The width and height of a WebP file, from its VP8X canvas, VP8L or
-// VP8 header, or null if it isn't one: a RIFF container of type WEBP
-// whose size matches
-export function webpSize(b) {
-	if (!(b instanceof Uint8Array) || b.length < 30)
-		return null;
-	const latin = (at) => String.fromCharCode(...b.subarray(at, at + 4));
-	const u24 = (at) => b[at] | b[at + 1] << 8 | b[at + 2] << 16;
-	if (latin(0) !== 'RIFF' || latin(8) !== 'WEBP' || (u24(4) | b[7] << 24) >>> 0 !== b.length - 8)
-		return null;
-	switch (latin(12)) {
-	case 'VP8X':
-		return { width: u24(24) + 1, height: u24(27) + 1 };
-	case 'VP8L': {
-		if (b[20] !== 0x2F)
-			return null;
-		const v = (u24(21) | b[24] << 24) >>> 0;
-		return { width: (v & 0x3FFF) + 1, height: (v >>> 14 & 0x3FFF) + 1 };
-	}
-	case 'VP8 ':
-		if (b[23] !== 0x9D || b[24] !== 0x01 || b[25] !== 0x2A)
-			return null;
-		return { width: (b[26] | b[27] << 8) & 0x3FFF, height: (b[28] | b[29] << 8) & 0x3FFF };
-	}
-	return null;
-}
-
-// Avatars are square WebP pictures or animations from 128x128 to 512x512
-// pixels in at most 8 KiB (SPEC.md, Avatar)
+// Avatars are square PNG, JPEG, GIF or WebP pictures or animations from
+// 128x128 to 512x512 pixels in at most 8 KiB (SPEC.md, Avatar)
 export const AVATAR_MAX_BYTES = 8192;
 export const AVATAR_MIN_SIDE = 128;
 export const AVATAR_MAX_SIDE = 512;
 
 // why an avatar is ignored, or null if it is within the limits
 export function avatarProblem(b) {
-	const size = webpSize(b);
+	const size = pictureInfo(b);
 	if (!size)
-		return 'not a WebP file';
+		return 'not a PNG, JPEG, GIF or WebP picture';
 	if (b.length > AVATAR_MAX_BYTES)
 		return `${b.length} bytes, more than ${AVATAR_MAX_BYTES}`;
 	if (size.width !== size.height)
@@ -923,7 +899,7 @@ export const wind = ({ direction, speed }) => fixed(T.WIND, intBytes(direction, 
 
 export const codec2 = (mode, frames) => record(T.CODEC2, intBytes(mode, 1, 0, 255, 'Codec2 mode'), bytesOf(frames, undefined, 'frames'));
 export const webp = (bytes) => record(T.WEBP, bytesOf(bytes, undefined, 'WebP'));
-export const avatar = (bytes) => record(T.AVATAR, bytesOf(bytes, undefined, 'WebP'));
+export const avatar = (bytes) => record(T.AVATAR, bytesOf(bytes, undefined, 'avatar'));
 
 export function mime(type, name, content) {
 	const halves = type.split('/');

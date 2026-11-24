@@ -26,7 +26,7 @@ function checkFields({ label, callSign, name, avatar }) {
 
 // The key ring of a store, with crypto from loadCrypto(). Keys are plain
 // objects: { key (fingerprint hex), label, callSign, name, created,
-// revocations: { retired, compromised } (hex), avatar (WebP bytes
+// revocations: { retired, compromised } (hex), avatar (picture bytes
 // within the limits of records.js, or null) }; the avatar is kept as hex; the private key stays
 // inside, reachable only through signer().
 export async function openKeys(store, crypto) {

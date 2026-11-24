@@ -566,7 +566,17 @@ check('Request-Root is 19 or 35 bytes', R.requestRoot(1, fill(16, 0)).length + '
 	check('avatar: 127x127', R.avatarProblem(vp8(127, 127)), '127x127, not from 128x128 to 512x512');
 	check('avatar: 513x513', R.avatarProblem(vp8x(513, 513)), '513x513, not from 128x128 to 512x512');
 	check('avatar: not square', R.avatarProblem(vp8l(256, 200)), '256x200, not square');
-	check('avatar: a PNG', R.avatarProblem(Uint8Array.of(0x89, 0x50, 0x4E, 0x47, 13, 10, 26, 10)), 'not a WebP file');
+	// the other formats, by their headers alone
+	const be32 = (v) => [v >>> 24, v >> 16 & 255, v >> 8 & 255, v & 255];
+	const png = (w, h) => Uint8Array.of(0x89, 0x50, 0x4E, 0x47, 13, 10, 26, 10, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, ...be32(w), ...be32(h), 8, 6, 0, 0, 0, 0, 0, 0, 0);
+	const jpeg = (w, h) => Uint8Array.of(0xFF, 0xD8, 0xFF, 0xC0, 0, 17, 8, h >> 8, h & 255, w >> 8, w & 255, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+	const gif = (w, h) => Uint8Array.of(0x47, 0x49, 0x46, 0x38, 0x39, 0x61, w & 255, w >> 8, h & 255, h >> 8, 0, 0, 0, 0x3B);
+	check('avatar: a PNG', R.avatarProblem(png(256, 256)), null);
+	check('avatar: a JPEG', R.avatarProblem(jpeg(192, 192)), null);
+	check('avatar: a GIF', R.avatarProblem(gif(128, 128)), null);
+	check('avatar: a JPEG not square', R.avatarProblem(jpeg(192, 160)), '192x160, not square');
+	check('avatar: a PNG too large', R.avatarProblem(png(1024, 1024)), '1024x1024, not from 128x128 to 512x512');
+	check('avatar: a PNG signature alone', R.avatarProblem(Uint8Array.of(0x89, 0x50, 0x4E, 0x47, 13, 10, 26, 10)), 'not a PNG, JPEG, GIF or WebP picture');
 
 	// a received Avatar outside the limits is ignored, not malformed
 	const small = R.parse(R.payload([R.avatar(vp8(64, 64))]));

@@ -3,8 +3,6 @@
 // move, read from their headers without decoding them, so a picture too
 // large to draw is known before anything is drawn.
 
-import { webpSize } from './records.js';
-
 // The largest picture drawn right away in a thread, each side
 export const SHOWN_MAX = 1024;
 
@@ -96,6 +94,33 @@ function gif(b) {
 			break;
 	}
 	return { type: 'image/gif', width, height, animated: images > 1 };
+}
+
+// The width and height of a WebP file, from its VP8X canvas, VP8L or
+// VP8 header, or null if it isn't one: a RIFF container of type WEBP
+// whose size matches
+export function webpSize(b) {
+	if (!(b instanceof Uint8Array) || b.length < 30)
+		return null;
+	const latin = (at) => String.fromCharCode(...b.subarray(at, at + 4));
+	const u24 = (at) => b[at] | b[at + 1] << 8 | b[at + 2] << 16;
+	if (latin(0) !== 'RIFF' || latin(8) !== 'WEBP' || (u24(4) | b[7] << 24) >>> 0 !== b.length - 8)
+		return null;
+	switch (latin(12)) {
+	case 'VP8X':
+		return { width: u24(24) + 1, height: u24(27) + 1 };
+	case 'VP8L': {
+		if (b[20] !== 0x2F)
+			return null;
+		const v = (u24(21) | b[24] << 24) >>> 0;
+		return { width: (v & 0x3FFF) + 1, height: (v >>> 14 & 0x3FFF) + 1 };
+	}
+	case 'VP8 ':
+		if (b[23] !== 0x9D || b[24] !== 0x01 || b[25] !== 0x2A)
+			return null;
+		return { width: (b[26] | b[27] << 8) & 0x3FFF, height: (b[28] | b[29] << 8) & 0x3FFF };
+	}
+	return null;
 }
 
 function webp(b) {

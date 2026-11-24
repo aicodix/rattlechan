@@ -10,7 +10,7 @@ import { openStation } from './station.js';
 import { listen, inputs, decodeRecording } from './receiver.js';
 import { sizes, chainParts, chainModes, compose, composeAvatar, bundled, attachment, isCodec2File, fileName, FILES_MAX, FILES_MAX_BYTES, fill, pack, split, pick, secondsFor, airtime, needs, SECONDS_DEFAULT, SNR_DEFAULT, REDUNDANCY_DEFAULT } from './sender.js';
 import { output, encoderFor, play, playParts, LEVEL_DEFAULT, LEVEL_MIN } from './transmitter.js';
-import { encodeCall, decodeText, fromCall, fromName, textUTF8, webpSize, signed as signedRecord, payload as framePayload, T } from './records.js';
+import { encodeCall, decodeText, fromCall, fromName, textUTF8, webpSize, avatarProblem, AVATAR_MAX_BYTES, AVATAR_MIN_SIDE, signed as signedRecord, payload as framePayload, T } from './records.js';
 import { smallestText } from './encodings.js';
 import { openKeys } from './keys.js';
 import { conversations, boards } from './tree.js';
@@ -873,18 +873,30 @@ function keyCard(k) {
 		view.el('div.row', word, revokeNow, revokeStop),
 		revokeStatus);
 	revokeArea.hidden = true;
-	// its avatar: a WebP file as it is, sent now and then from here
+	// its avatar, sent now and then from here: a picture within the limits
+	// as it is, any other still picture made into one
 	const avatarInfo = view.el('p.dim');
 	const file = view.el('input');
 	file.type = 'file';
-	file.accept = 'image/webp,.webp';
+	file.accept = 'image/png,image/jpeg,image/gif,image/webp';
 	file.hidden = true;
 	file.onchange = async () => {
 		const f = file.files[0];
+		file.value = '';
 		if (!f)
 			return;
 		try {
-			await keys.update(k.key, { avatar: new Uint8Array(await f.arrayBuffer()) });
+			let bytes = new Uint8Array(await f.arrayBuffer());
+			const pic = pictureInfo(bytes);
+			if (!pic)
+				throw new RangeError('not a PNG, JPEG, GIF or WebP picture');
+			if (avatarProblem(bytes)) {
+				if (pic.animated)
+					throw new RangeError(`an animation goes only as it is, and stations ignore this one: ${avatarProblem(bytes)}`);
+				avatarInfo.textContent = 'Making an avatar of it…';
+				bytes = await makeAvatar(bytes, pic.type);
+			}
+			await keys.update(k.key, { avatar: bytes });
 			fillKeys();
 		} catch (err) {
 			avatarInfo.textContent = `${f.name}: ${err.message}.`;
@@ -925,12 +937,13 @@ function keyCard(k) {
 	if (k.avatar && !sendAvatar.hidden)
 		avatarDraft(k).then(async (d) => {
 			const p = plan(await encoderFor(48000), d, 'fragments', true);
-			avatarInfo.textContent = `${view.bytes(k.avatar.length)} WebP, on the air as ${p.count === 1 ? 'one frame' : `${p.count} fragments, any ${p.K} of them enough`}, ${p.airtime.toFixed(1)} s. Stations that trust this key show it beside its posts.`;
+			const pic = pictureInfo(k.avatar);
+			avatarInfo.textContent = `${pic.width}x${pic.height} ${FORMATS[pic.type]}${pic.animated ? ' animation' : ''} of ${view.bytes(k.avatar.length)}, on the air as ${p.count === 1 ? 'one frame' : `${p.count} fragments, any ${p.K} of them enough`}, ${p.airtime.toFixed(1)} s. Stations that trust this key show it beside its posts.`;
 		}).catch((err) => {
 			avatarInfo.textContent = err.message;
 		});
 	else if (!k.avatar)
-		avatarInfo.textContent = 'No avatar: stations show the identicon. An avatar is a square WebP picture or animation from 128x128 to 512x512 pixels in at most 8 KiB; stations ignore any other.';
+		avatarInfo.textContent = 'No avatar: stations show the identicon. Choose any picture or photo: its centre square is made into an avatar. A square PNG, JPEG, GIF or WebP picture or animation from 128x128 to 512x512 pixels in at most 8 KiB goes as it is.';
 	const revoke = view.el('button.small', 'Revoke…');
 	revoke.hidden = reason.options.length === 0;
 	revoke.onclick = () => {
@@ -1385,26 +1398,59 @@ function halved(width, height, budget) {
 	return [Math.max(1, width), Math.max(1, height)];
 }
 
-async function shrink(bytes, type, budget) {
-	const img = await createImageBitmap(new Blob([bytes], { type }));
-	const [W, H] = halved(img.width, img.height, budget);
-	const canvas = (w, h) => Object.assign(document.createElement('canvas'), { width: w, height: h });
+const FORMATS = { 'image/png': 'PNG', 'image/jpeg': 'JPEG', 'image/gif': 'GIF', 'image/webp': 'WebP' };
+
+const canvasOf = (w, h) => Object.assign(document.createElement('canvas'), { width: w, height: h });
+
+// the part of img from x, y of w by h, halved until it fits the budget,
+// then drawn on a white canvas of side x side, or width by height of the
+// halved part (as halved() tells)
+function halving(img, x, y, w, h, budget, side = null) {
 	let src = img;
-	for (let w = img.width, h = img.height; w * h > budget;) {
-		w = Math.floor(w / 2);
-		h = Math.floor(h / 2);
-		const half = canvas(Math.max(1, w), Math.max(1, h));
-		half.getContext('2d').drawImage(src, 0, 0, half.width, half.height);
-		src = half;
+	while (w * h > budget) {
+		const half = canvasOf(Math.max(1, Math.floor(w / 2)), Math.max(1, Math.floor(h / 2)));
+		half.getContext('2d').drawImage(src, x, y, w, h, 0, 0, half.width, half.height);
+		[src, x, y, w, h] = [half, 0, 0, half.width, half.height];
 	}
-	const out = canvas(W, H);
+	const out = canvasOf(side ?? w, side ?? h);
 	const ctx = out.getContext('2d');
 	ctx.fillStyle = '#fff';
-	ctx.fillRect(0, 0, W, H);
-	ctx.drawImage(src, 0, 0);
+	ctx.fillRect(0, 0, out.width, out.height);
+	ctx.drawImage(src, x, y, w, h, 0, 0, out.width, out.height);
+	return out;
+}
+
+const jpegOf = async (canvas, quality) => new Uint8Array(await (await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality))).arrayBuffer());
+
+async function shrink(bytes, type, budget) {
+	const img = await createImageBitmap(new Blob([bytes], { type }));
+	const out = halving(img, 0, 0, img.width, img.height, budget);
 	img.close();
-	const blob = await new Promise((resolve) => out.toBlob(resolve, 'image/jpeg', 0.7));
-	return new Uint8Array(await blob.arrayBuffer());
+	return jpegOf(out, 0.7);
+}
+
+// An avatar from a still picture: its centre square, halved to 256 pixels
+// a side or less (but at least 128), as a JPEG of falling quality until it
+// fits 8 KiB, then at 128 pixels if it still doesn't. Every browser
+// encodes JPEG; not every one WebP.
+async function makeAvatar(bytes, type) {
+	const img = await createImageBitmap(new Blob([bytes], { type }));
+	const s = Math.min(img.width, img.height);
+	const x = Math.floor((img.width - s) / 2), y = Math.floor((img.height - s) / 2);
+	try {
+		for (const budget of [256 * 256, AVATAR_MIN_SIDE * AVATAR_MIN_SIDE]) {
+			const [side] = halved(s, s, budget);
+			const out = halving(img, x, y, s, s, budget, Math.max(AVATAR_MIN_SIDE, side));
+			for (const quality of [0.8, 0.7, 0.6, 0.5, 0.4, 0.3]) {
+				const jpeg = await jpegOf(out, quality);
+				if (jpeg.length <= AVATAR_MAX_BYTES)
+					return jpeg;
+			}
+		}
+	} finally {
+		img.close();
+	}
+	throw new RangeError('it doesn\'t fit in 8 KiB even at 128x128');
 }
 
 // the size picker of a still picture with more pixels than the smallest
