@@ -509,8 +509,10 @@ function startListening() {
 				return;
 			heard = Date.now();
 			// the meter keeps showing the input, but the station
-			// doesn't decode itself
-			level(r.peak);
+			// doesn't decode itself; nothing to draw while it can't be
+			// seen, on another tab or with the app in the background
+			if (!$('station').hidden && !document.hidden)
+				level(r.peak);
 				if (Date.now() < deafUntil)
 					return;
 			if (r.events.length) {
