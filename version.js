@@ -34,7 +34,10 @@ export function fingerprint(files) {
 
 // The running app's fingerprint: get(name) gives a file's bytes, by default
 // fetched next to this module as the page gets it (through the service
-// worker: from the network when online, the offline copy otherwise)
+// worker: from the network when online, the offline copy otherwise), never
+// from the browser's HTTP cache unchecked: after a hard reload the page
+// isn't under the service worker, and a cached copy up to ten minutes old
+// (GitHub Pages' max-age) could differ from what the reload just fetched
 export async function running(get = fetched(new URL('./', import.meta.url))) {
 	const sw = await get('sw.js');
 	const files = [];
@@ -44,7 +47,7 @@ export async function running(get = fetched(new URL('./', import.meta.url))) {
 }
 
 const fetched = (base) => async (name) => {
-	const res = await fetch(new URL(name, base));
+	const res = await fetch(new URL(name, base), { cache: 'no-cache' });
 	if (!res.ok)
 		throw new Error(`${name}: ${res.status}`);
 	return new Uint8Array(await res.arrayBuffer());
