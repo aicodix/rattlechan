@@ -48,10 +48,11 @@ check('MiB', bytes(3 * 1048576), '3.0 MiB');
 	check('MIME without a name', fileOf(part(R.mime('application/pdf', '', Uint8Array.of(37, 80)))).name, `${hex(blake2s(Uint8Array.of(37, 80)))}.pdf`);
 	check('MIME of a type without an extension', fileOf(part(R.mime('application/x-msdownload', '', Uint8Array.of(77, 90)))).name.endsWith('.bin'), true);
 	const pic = Uint8Array.of(1, 2, 3);
-	check('WebP', fileOf(part(R.webp(pic))).name, `${hex(blake2s(pic))}.webp`);
+	check('Picture, not a picture', fileOf(part(R.picture(pic))).name, `${hex(blake2s(pic))}.bin`);
 	// an Avatar by its bytes: a PNG signature and IHDR of 128x128
 	const png = Uint8Array.of(0x89, 0x50, 0x4E, 0x47, 13, 10, 26, 10, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 128, 0, 0, 0, 128, 8, 6, 0, 0, 0, 0, 0, 0, 0);
 	check('Avatar, a PNG', fileOf(part(R.avatar(png))).name, `${hex(blake2s(png))}.png`);
+	check('Picture, a PNG', fileOf(part(R.picture(png))).name, `${hex(blake2s(png))}.png`);
 	check('Avatar, not a picture', fileOf(part(R.avatar(pic))).name, `${hex(blake2s(pic))}.bin`);
 	check('not a file', fileOf(part(R.textUTF8('x'))), null);
 }

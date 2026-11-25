@@ -106,7 +106,7 @@ check('message: From-Call', p[0].prefixes[0].handle, 'DL1ABC');
 		const q = R.parse(compose({ kind: 'reply', parent, text: 'files', parts, sign }), { verify: C.verify });
 		const r = q[0].children[0];
 		check('files: verifies', q[0].verified, true);
-		check('files: text first, then the parts', r.parts.map((n) => n.name).join(), 'TEXT_UTF8,WEBP,CODEC2,MIME,MIME');
+		check('files: text first, then the parts', r.parts.map((n) => n.name).join(), 'TEXT_UTF8,PICTURE,CODEC2,MIME,MIME');
 		check('files: the WebP as it is', r.parts[1].body.length, webp.length);
 		check('files: Codec2 without its header, its mode kept', r.parts[2].mode === 8 && r.parts[2].body.length, 8);
 		check('files: MIME type', r.parts[3].mime, 'application/pdf');
@@ -114,8 +114,14 @@ check('message: From-Call', p[0].prefixes[0].handle, 'DL1ABC');
 		check('files: content', new TextDecoder().decode(r.parts[3].content), '%PDF-1.4 tiny');
 		check('files: an invalid type', r.parts[4].mime, 'application/octet-stream');
 		check('files: nothing left of a name', r.parts[4].fileName, '');
+		// PNG, JPEG and GIF by their bytes too, whatever type or name they claim
+		for (const f of ['photo.jpg', 'still.png', 'moving.gif']) {
+			const bytes = new Uint8Array(await file(`examples/pictures/${f}`));
+			const n = R.parse(R.payload([attachment(bytes, { type: 'application/octet-stream', name: 'x.bin' })]))[0];
+			check(`files: ${f} as a Picture, as it is`, [n.name, hex(n.body) === hex(bytes)].join(), 'PICTURE,true');
+		}
 		const only = R.parse(compose({ kind: 'topic', subject: 'Photo', parts: [attachment(webp)], sign }), { verify: C.verify });
-		check('files: a Topic without text', only[0].children[0].parts.map((n) => n.name).join(), 'WEBP');
+		check('files: a Topic without text', only[0].children[0].parts.map((n) => n.name).join(), 'PICTURE');
 		let none = false;
 		try {
 			compose({ kind: 'topic', subject: 'Nothing', sign });

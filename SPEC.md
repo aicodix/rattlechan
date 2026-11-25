@@ -77,7 +77,7 @@ The class of a type follows from its number alone, so a parser knows what to do 
 | 0x43 | Text-SCSU | text |
 | 0x44–0x4F | text range | reserved for more text encodings |
 | 0x50 | Codec2 | mode[1] frames |
-| 0x51 | WebP | image or animation |
+| 0x51 | Picture | PNG, JPEG, GIF or WebP picture or animation |
 | 0x52 | Avatar | PNG, JPEG, GIF or WebP picture or animation |
 | 0x88 | Temperature | i16, 0.01 °C, no length |
 | 0x89 | Humidity | u16, 0.01 % relative, no length |
@@ -160,7 +160,7 @@ Reply := timestamp[4] parent[32] part*
 **Media codes** exist only for small content where a MIME string would weigh too much:
 
 - **Codec2** (0x50): one mode byte, then raw frames. The mode byte is Codec2's own CODEC2_MODE value (0 = 3200, 1 = 2400, 2 = 1600, 3 = 1400, 4 = 1300, 5 = 1200, 8 = 700C), the same byte the 7-byte .c2 file header stores; "Save as" rebuilds the rest of the header (magic C0 DE C2, version 0.8, flags 0: FFmpeg reads only major version 0, and Codec2's own c2dec reads just the magic and the mode). 5 s at 700C is 438 bytes.
-- **WebP** (0x51): pictures and animations.
+- **Picture** (0x51): a PNG, JPEG, GIF or WebP picture or animation, its format told by its first bytes, never declared, as for Avatar. Every browser decodes all four, so photos, screenshots and animations go as they are, without a MIME escape's type and name. Other content is not malformed: clients show it as a picture they can't read, to save.
 - **Avatar (0x52):** a PNG, JPEG, GIF or WebP picture or animation for the signer's key, sent now and then, not with every post. Its format is told by its first bytes, never declared. It has 16384 to 262144 pixels, as many as 128x128 to 512x512, its longer side at most twice its shorter one (2:1 or 1:2 at most), by the PNG IHDR, the JPEG frame header, the GIF logical screen, the WebP VP8X canvas or VP8L or VP8 frame size, and at most 8192 bytes; all of these are read from the header before anything is decoded. Every browser encodes JPEG and PNG, so a client can make an avatar from any photo without a WebP encoder; clients ignore any other Avatar (logged, never learned, never precious, not malformed) and send none. Honoured anywhere inside Signed, bare, in a Bundle or as a post part, for the innermost signer's key, whose fingerprint identifies the avatar; outside Signed it is only logged, since without a key there is no one to attach it to. The client keeps one avatar per key, the one from the newest post, and draws it beside every post that key signs once the user trusts the key, whole and fitted into its place, never cropped, so any shape within the limits shows as its sender made it; until then, it draws an identicon from the key's fingerprint.
 - **MIME escape** (0xEF): everything else, `type/subtype` zero-terminated, then the content. The type is lowercase ASCII as in RFC 6838: type/subtype only, letters, digits and ! # $ & - ^ _ . +, each half at most 127 characters, no parameters. Then a zero-terminated file name, possibly empty: lowercase a–z, digits, ".", "-" and "_", at most 64 characters, not starting with "." and without "..". Anything else in the type or the name is malformed.
 

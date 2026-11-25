@@ -8,6 +8,7 @@ import * as R from './records.js';
 import { smallestText } from './encodings.js';
 import { PAYLOAD_MAX, SECONDS_MAX } from './robusto.js';
 import { randomIndices } from './hydra.js';
+import { pictureInfo } from './pictures.js';
 
 export const SECONDS_DEFAULT = 5;
 export const SNR_DEFAULT = 10;
@@ -96,12 +97,13 @@ export function bundled({ posts, callSign = null, name = null, avatar = null, si
 export const FILES_MAX = 4;
 export const FILES_MAX_BYTES = 1 << 20;
 
-// A file as a post part, by its content: a WebP file as WebP, a .c2 file
-// as Codec2 (its 7-byte header gone, the mode byte kept), anything else as
-// a MIME escape with its type and file name, both made valid
+// A file as a post part, by its content: a PNG, JPEG, GIF or WebP file as
+// a Picture, a .c2 file as Codec2 (its 7-byte header gone, the mode byte
+// kept), anything else as a MIME escape with its type and file name, both
+// made valid
 export function attachment(bytes, { type = '', name = '' } = {}) {
-	if (R.webpSize(bytes))
-		return R.webp(bytes);
+	if (pictureInfo(bytes))
+		return R.picture(bytes);
 	if (isCodec2File(bytes))
 		return R.codec2(bytes[5], bytes.subarray(7));
 	return R.mime(mimeType(type), fileName(name), bytes);

@@ -44,7 +44,7 @@ export const T = Object.freeze({
 	TEXT_TABLE: 0x42,
 	TEXT_SCSU: 0x43,
 	CODEC2: 0x50,
-	WEBP: 0x51,
+	PICTURE: 0x51,
 	AVATAR: 0x52,
 	MIME: 0xEF,
 });
@@ -901,7 +901,7 @@ export const altitude = (millimetre) => fixed(T.ALTITUDE, sle32(millimetre, 'alt
 export const wind = ({ direction, speed }) => fixed(T.WIND, intBytes(direction, 2, 0, 35999, 'wind direction'), le16(speed, 'wind speed'));
 
 export const codec2 = (mode, frames) => record(T.CODEC2, intBytes(mode, 1, 0, 255, 'Codec2 mode'), bytesOf(frames, undefined, 'frames'));
-export const webp = (bytes) => record(T.WEBP, bytesOf(bytes, undefined, 'WebP'));
+export const picture = (bytes) => record(T.PICTURE, bytesOf(bytes, undefined, 'picture'));
 export const avatar = (bytes) => record(T.AVATAR, bytesOf(bytes, undefined, 'avatar'));
 
 export function mime(type, name, content) {

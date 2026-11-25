@@ -105,8 +105,8 @@ export async function session({ file, rate = 48000, now = Math.floor(Date.now() 
 	}));
 
 	// Yuki sends a picture
-	post('JA1ABC', 'signed Topic with a WebP picture', R.payload([C.signRecords(keyOf(YUKI), R.fromCall('JA1ABC'),
-		R.topic(t0 + 300, smallestText('夕暮れのアンテナ'), smallestText('今日の夕方、新しいアンテナを立てました。'), R.webp(dusk)))]));
+	post('JA1ABC', 'signed Topic with a picture', R.payload([C.signRecords(keyOf(YUKI), R.fromCall('JA1ABC'),
+		R.topic(t0 + 300, smallestText('夕暮れのアンテナ'), smallestText('今日の夕方、新しいアンテナを立てました。'), R.picture(dusk)))]));
 
 	// a sensor's Keyed reading for its owner, which only the owner can check
 	post('DL1ABC-9', 'Keyed sensor Reply', R.payload([R.keyed(keyOf(SENSOR), R.reply(t0 + 330, cqId, R.temperature(1890), R.voltage(3310)))]));

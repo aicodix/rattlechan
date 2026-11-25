@@ -274,7 +274,7 @@ check('Request-Root is 19 or 35 bytes', R.requestRoot(1, fill(16, 0)).length + '
 	malformed('topic without timestamp', R.payload([R.record(T.TOPIC, [1, 0])]));
 	malformed('reply with short parent', R.payload([R.record(T.REPLY, [1, 0, 0, 0], fill(31, 0))]));
 	malformed('core record inside a post', R.payload([R.reply(ts, parentId, R.textUTF8('a'), R.bundle())]));
-	p = parses('bare media', R.payload([R.mention(fill(32, 1)), R.fromCall('A'), R.webp(fill(10, 1)),
+	p = parses('bare media', R.payload([R.mention(fill(32, 1)), R.fromCall('A'), R.picture(fill(10, 1)),
 		R.toCall('B'), R.mime('text/plain', 'a.txt', fill(3, 0x41)), R.codec2(8, fill(7, 0))]));
 	check('bare media are kept as bare records', p.map((x) => x.bare).join(), 'true,true,true,true');
 	check('prefix before bare WebP', p[1].chain[0].handle, 'A');

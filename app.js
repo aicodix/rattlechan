@@ -10,7 +10,7 @@ import { openStation } from './station.js';
 import { listen, inputs, decodeRecording } from './receiver.js';
 import { sizes, chainParts, chainModes, compose, composeAvatar, bundled, attachment, isCodec2File, fileName, FILES_MAX, FILES_MAX_BYTES, fill, pack, split, pick, secondsFor, airtime, needs, SECONDS_DEFAULT, SNR_DEFAULT, REDUNDANCY_DEFAULT } from './sender.js';
 import { wake, quiet, encoderFor, play, playParts, LEVEL_DEFAULT, LEVEL_MIN } from './transmitter.js';
-import { encodeCall, decodeText, fromCall, fromName, textUTF8, webpSize, avatarProblem, AVATAR_MAX_BYTES, AVATAR_MIN_PIXELS, AVATAR_MAX_PIXELS, AVATAR_MAX_RATIO, signed as signedRecord, payload as framePayload, encodeLength, walk, T } from './records.js';
+import { encodeCall, decodeText, fromCall, fromName, textUTF8, avatarProblem, AVATAR_MAX_BYTES, AVATAR_MIN_PIXELS, AVATAR_MAX_PIXELS, AVATAR_MAX_RATIO, signed as signedRecord, payload as framePayload, encodeLength, walk, T } from './records.js';
 import { smallestText } from './encodings.js';
 import { openKeys } from './keys.js';
 import { conversations, boards } from './tree.js';
@@ -1442,9 +1442,9 @@ $('include-name').onchange = estimate;
 $('include-avatar').onchange = estimate;
 $('subject').oninput = typed;
 
-// Files attached to the post: WebP and Codec2 (.c2) files go as their own
-// types, anything else as a MIME escape with its type and a file name the
-// operator can change or clear
+// Files attached to the post: PNG, JPEG, GIF and WebP files as Pictures and
+// Codec2 (.c2) files go as their own types, anything else as a MIME escape
+// with its type and a file name the operator can change or clear
 let attachments = [];
 
 const CODEC2_MODES = { 0: '3200', 1: '2400', 2: '1600', 3: '1400', 4: '1300', 5: '1200', 8: '700C' };
@@ -1795,7 +1795,7 @@ function showAttachments() {
 		};
 		const box = view.el('div.attachment', view.el('span.what', describeFile(a)), shrinkPicker(a) ?? '');
 		// only a MIME escape carries a name, which costs its bytes
-		if (!webpSize(a.bytes) && !isCodec2File(a.bytes)) {
+		if (!pictureInfo(a.bytes) && !isCodec2File(a.bytes)) {
 			const input = view.el('input');
 			input.value = a.name;
 			input.placeholder = 'none: named by its hash';

@@ -430,10 +430,7 @@ const EXTENSIONS = Object.freeze({
 export function fileOf(n) {
 	let data, ext;
 	switch (n.type) {
-	case T.WEBP:
-		data = n.body;
-		ext = 'webp';
-		break;
+	case T.PICTURE:
 	case T.AVATAR:
 		data = n.body;
 		ext = EXTENSIONS[pictureInfo(n.body)?.type] ?? 'bin';
@@ -554,8 +551,8 @@ function leaf(n, key = null) {
 		return el('div.part', `🔋 ${fixed(n.value, 1000, 3)} V`);
 	case T.MENTION:
 		return el('div.part', '↗ ', el('span.key', short(n.id)));
-	case T.WEBP:
-		return picture(n, n.body, 'picture', key) ?? el('div.part.dim', 'a WebP picture that can\'t be read, ', bytes(n.body.length), ' ', saveButton(n, key));
+	case T.PICTURE:
+		return picture(n, n.body, 'picture', key) ?? el('div.part.dim', 'a picture that can\'t be read, ', bytes(n.body.length), ' ', saveButton(n, key));
 	case T.AVATAR:
 		if (n.ignored)
 			return el('div.part.dim', `avatar ignored: ${n.ignored}`);
