@@ -16,6 +16,7 @@ import { openKeys } from './keys.js';
 import { conversations, boards } from './tree.js';
 import { pictureInfo, huge, trimmed, FORMATS } from './pictures.js';
 import * as view from './render.js';
+import { running } from './version.js';
 
 const $ = (id) => document.getElementById(id);
 const MiB = 1024 * 1024;
@@ -2486,6 +2487,17 @@ $('outbox-send').onclick = async () => {
 		outboxEstimate();
 	}
 };
+
+// which version runs, from its files, once the app has settled: they come
+// through the service worker, the network's when online, so mostly small
+// "unchanged" answers, the offline copy otherwise
+setTimeout(async () => {
+	try {
+		$('version').textContent = `Version ${await running()}`;
+	} catch (err) {
+		$('version').textContent = `Version unknown: ${err.message}`;
+	}
+}, 3000);
 
 await fillOwn();
 await trustOwn();

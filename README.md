@@ -99,6 +99,8 @@ Early. The protocol is a v0 draft in [SPEC.md](SPEC.md) and will change while th
 * [keys_test.mjs](keys_test.mjs): keys in a store in memory, their revocations, signing and the secrets archive, run with `node keys_test.mjs`
 * [transmitter.js](transmitter.js): plays a transmission out of the default output, through the receiver's audio while listening and a fresh one otherwise, opened right in the tap, as iOS needs
 * [receiver.js](receiver.js), [capture_worklet.js](capture_worklet.js), [decoder_worker.js](decoder_worker.js): microphone to AudioWorklet to the ROBUSTO decoder in a worker, and decoding recordings; never waits on the audio system, which can hang on iOS
+* [version.js](version.js), [version.mjs](version.mjs): which version runs: a fingerprint of the app's files, shown under About; `node version.mjs` prints it for a checkout, `node version.mjs 67dbec43` finds the commits that have it
+* [version_test.mjs](version_test.mjs): the fingerprint, and the checkout's the same as the script's, run with `node version_test.mjs`
 * [manifest.webmanifest](manifest.webmanifest), [sw.js](sw.js), [icon.svg](icon.svg), icon-180.png, icon-192.png, icon-512.png: what makes it an installable web app that works offline
 * [sw_test.mjs](sw_test.mjs): every file the page and its modules load is in the service worker's list, run with `node sw_test.mjs`
 

@@ -41,6 +41,7 @@ const FILES = [
 	'tar.js',
 	'transmitter.js',
 	'tree.js',
+	'version.js',
 	'wasm.js',
 	'crypto.wasm',
 	'hydra.wasm',
