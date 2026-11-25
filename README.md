@@ -28,7 +28,7 @@ Rattlechan is for the day nothing else works. Get it ready while everything stil
 * Compose shows the size and airtime of a post before you send it.
 * Listen, in Station, receives. Posts show in Inbox and Boards. The screen stays on while the app is open, as most phones stop the microphone once it goes dark.
 * If the receiver says there is no audio, or the phone was in the background, tap Listen again: it always starts over. Stop stops listening and anything going out.
-* Pictures go as they are: PNG, JPEG, GIF or WebP. So do Codec2 (.c2) and Opus (.opus) recordings.
+* Pictures go as they are: PNG, JPEG, GIF or WebP. So do Codec2 (.c2) and Opus (.opus) recordings: Opus plays in the app when you tap Play, Codec2 is saved and played with Codec2's own tools or FFmpeg for now.
 * A station that missed part of a long post can still get it: Send again, on the post, sends new pieces of it, and any of them help. This works for anyone's post, so a station in range of both can pass it on.
 * Trust the keys of your team in the log, so their posts are kept and their pictures shown.
 * Export data now and then.
@@ -53,7 +53,7 @@ Early. The protocol is a v0 draft in [SPEC.md](SPEC.md) and will change while th
 * [SPEC.md](SPEC.md): the Rattlechan v0 protocol
 * [blake2s.js](blake2s.js): BLAKE2s (RFC 7693) with keyed mode, output lengths 1 to 32 bytes and streaming
 * [blake2s_test.mjs](blake2s_test.mjs): tests, run with `node blake2s_test.mjs`
-* [records.js](records.js): record parser and encoder: prefixes, posts, Signed, Keyed, Bundle, post IDs and the error table
+* [records.js](records.js): record parser and encoder: prefixes, posts, Signed, Keyed, Bundle, post IDs and the error table; Codec2 and Opus told apart by their first bytes
 * [records_test.mjs](records_test.mjs): tests with hand-built frames, run with `node records_test.mjs`
 * [wasm.js](wasm.js): loads the WebAssembly modules from a URL, a fetch Response, bytes or a compiled module
 * [wasm_test.mjs](wasm_test.mjs): tests with a hand-written module, run with `node wasm_test.mjs`
@@ -93,7 +93,7 @@ Early. The protocol is a v0 draft in [SPEC.md](SPEC.md) and will change while th
 * [render_test.mjs](render_test.mjs): what render.js does without a document, such as telling animated WebP apart and identicons, run with `node render_test.mjs`
 * [pictures.js](pictures.js): PNG, JPEG, GIF and WebP told by their first bytes, with their size and whether they move, read from the headers without decoding
 * [pictures_test.mjs](pictures_test.mjs): the test pictures and hand-made headers, run with `node pictures_test.mjs`
-* [sender.js](sender.js): sending: a post as records, addressed or for everyone, with attached files (pictures as they are), in one frame or as Fragments with extra blocks at random indices, only in modes that decode at the chosen SNR, chained into one seamless transmission
+* [sender.js](sender.js): sending: a post as records, addressed or for everyone, with attached files (pictures and audio as they are), in one frame or as Fragments with extra blocks at random indices, only in modes that decode at the chosen SNR, chained into one seamless transmission
 * [sender_test.mjs](sender_test.mjs): posts composed, split, chained and decoded again with the real modem and HYDRA, run with `node sender_test.mjs`
 * [keys.js](keys.js): the station's own signing keys in the secrets: generated or imported, each with its label, From-Call, From-Name and both revocations
 * [keys_test.mjs](keys_test.mjs): keys in a store in memory, their revocations, signing and the secrets archive, run with `node keys_test.mjs`

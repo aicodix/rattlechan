@@ -157,7 +157,7 @@ Reply := timestamp[4] parent[32] part*
  7 ISO-8859-8    15 macintosh     23 windows-1256   31 UTF-16LE
 ```
 
-**Media codes** exist only for small content where a MIME string would weigh too much:
+**Media codes** carry the common formats as they are, told by their first bytes, so they need no MIME type or file name; everything else goes in a MIME escape:
 
 - **Audio** (0x50): an audio file as it is, its format told by its first bytes, never declared, as for Picture:
   - **Codec2**, a .c2 file: the magic C0 DE C2, a major and a minor version byte (any version), the mode byte, a flags byte, then the frames. The mode byte is Codec2's own CODEC2_MODE value (0 = 3200, 1 = 2400, 2 = 1600, 3 = 1400, 4 = 1300, 5 = 1200, 8 = 700C). Each frame fills whole bytes: 700C has 28 bits every 40 ms, stored in 4 bytes, so 5 s is 500 bytes of frames and 507 with the header.
