@@ -98,19 +98,16 @@ export const FILES_MAX = 4;
 export const FILES_MAX_BYTES = 1 << 20;
 
 // A file as a post part, by its content: a PNG, JPEG, GIF or WebP file as
-// a Picture, a .c2 file as Codec2 (its 7-byte header gone, the mode byte
-// kept), anything else as a MIME escape with its type and file name, both
-// made valid
+// a Picture, a Codec2 (.c2) or Ogg Opus file as Audio, both as they are,
+// anything else as a MIME escape with its type and file name, both made
+// valid
 export function attachment(bytes, { type = '', name = '' } = {}) {
 	if (pictureInfo(bytes))
 		return R.picture(bytes);
-	if (isCodec2File(bytes))
-		return R.codec2(bytes[5], bytes.subarray(7));
+	if (R.audioInfo(bytes))
+		return R.audio(bytes);
 	return R.mime(mimeType(type), fileName(name), bytes);
 }
-
-// magic C0 DE C2, version, mode, flags
-export const isCodec2File = (b) => b.length >= 7 && b[0] === 0xC0 && b[1] === 0xDE && b[2] === 0xC2;
 
 // a content type as a MIME escape takes it: type/subtype only, lowercase,
 // otherwise application/octet-stream

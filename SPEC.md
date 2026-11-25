@@ -76,7 +76,7 @@ The class of a type follows from its number alone, so a parser knows what to do 
 | 0x42 | Text-Table | table index[1] text |
 | 0x43 | Text-SCSU | text |
 | 0x44–0x4F | text range | reserved for more text encodings |
-| 0x50 | Codec2 | mode[1] frames |
+| 0x50 | Audio | Codec2 (.c2) or Opus in Ogg file |
 | 0x51 | Picture | PNG, JPEG, GIF or WebP picture or animation |
 | 0x52 | Avatar | PNG, JPEG, GIF or WebP picture or animation |
 | 0x88 | Temperature | i16, 0.01 °C, no length |
@@ -159,12 +159,15 @@ Reply := timestamp[4] parent[32] part*
 
 **Media codes** exist only for small content where a MIME string would weigh too much:
 
-- **Codec2** (0x50): one mode byte, then raw frames. The mode byte is Codec2's own CODEC2_MODE value (0 = 3200, 1 = 2400, 2 = 1600, 3 = 1400, 4 = 1300, 5 = 1200, 8 = 700C), the same byte the 7-byte .c2 file header stores; "Save as" rebuilds the rest of the header (magic C0 DE C2, version 0.8, flags 0: FFmpeg reads only major version 0, and Codec2's own c2dec reads just the magic and the mode). 5 s at 700C is 438 bytes.
+- **Audio** (0x50): an audio file as it is, its format told by its first bytes, never declared, as for Picture:
+  - **Codec2**, a .c2 file: the magic C0 DE C2, a major and a minor version byte (any version), the mode byte, a flags byte, then the frames. The mode byte is Codec2's own CODEC2_MODE value (0 = 3200, 1 = 2400, 2 = 1600, 3 = 1400, 4 = 1300, 5 = 1200, 8 = 700C). Each frame fills whole bytes: 700C has 28 bits every 40 ms, stored in 4 bytes, so 5 s is 500 bytes of frames and 507 with the header.
+  - **Opus in Ogg**, an .opus file: an Ogg page (capture pattern "OggS", stream structure version 0) whose first packet is the OpusHead (RFC 7845). Its two header pages cost about 100 bytes, and Opus starts at 6 kbit/s, so Codec2 is the one for voice over narrow channels; Opus is the one phones play.
+  - Other content is not malformed: clients show it as audio they can't read, to save. Received audio is saved as it came; it plays only when asked for, never by itself.
 - **Picture** (0x51): a PNG, JPEG, GIF or WebP picture or animation, its format told by its first bytes, never declared, as for Avatar. Every browser decodes all four, so photos, screenshots and animations go as they are, without a MIME escape's type and name. Other content is not malformed: clients show it as a picture they can't read, to save.
 - **Avatar (0x52):** a PNG, JPEG, GIF or WebP picture or animation for the signer's key, sent now and then, not with every post. Its format is told by its first bytes, never declared. It has 16384 to 262144 pixels, as many as 128x128 to 512x512, its longer side at most twice its shorter one (2:1 or 1:2 at most), by the PNG IHDR, the JPEG frame header, the GIF logical screen, the WebP VP8X canvas or VP8L or VP8 frame size, and at most 8192 bytes; all of these are read from the header before anything is decoded. Every browser encodes JPEG and PNG, so a client can make an avatar from any photo without a WebP encoder; clients ignore any other Avatar (logged, never learned, never precious, not malformed) and send none. Honoured anywhere inside Signed, bare, in a Bundle or as a post part, for the innermost signer's key, whose fingerprint identifies the avatar; outside Signed it is only logged, since without a key there is no one to attach it to. The client keeps one avatar per key, the one from the newest post, and draws it beside every post that key signs once the user trusts the key, whole and fitted into its place, never cropped, so any shape within the limits shows as its sender made it; until then, it draws an identicon from the key's fingerprint.
 - **MIME escape** (0xEF): everything else, `type/subtype` zero-terminated, then the content. The type is lowercase ASCII as in RFC 6838: type/subtype only, letters, digits and ! # $ & - ^ _ . +, each half at most 127 characters, no parameters. Then a zero-terminated file name, possibly empty: lowercase a–z, digits, ".", "-" and "_", at most 64 characters, not starting with "." and without "..". Anything else in the type or the name is malformed.
 
-A picture, 5 s of voice and the post overhead fit in under 1000 bytes, signed or not.
+5 s of voice at 700C and the post overhead fit in under 650 bytes, signed or not; a small picture, such as the 842-byte example of examples/session.mjs, brings it to about 1.5 KiB.
 
 ## Identity, hashing and signatures
 
@@ -242,7 +245,7 @@ None of this is part of the format; it is what a good client does by default, an
 | Max K, max N, max post size, max Signed nesting | the client, from available memory and CPU |
 
 - **Keys:** generated quietly on first start; signing can be turned off.
-- **Content guideline:** up to 1 MiB per post, at most one text, up to four heavy parts (pictures, PDFs) or one audio or video; combinations like an animated WebP with Codec2 are fine. Show the first few parts and collapse the rest.
+- **Content guideline:** up to 1 MiB per post, at most one text, up to four heavy parts (pictures, PDFs) or one audio or video; combinations like an animated picture with Codec2 audio are fine. Show the first few parts and collapse the rest.
 - **Decoding bombs:** read image dimensions and audio or video length from headers before decoding, and refuse implausible sizes. Pictures larger than 4096 pixels on a side are drawn only after warning the user, with the memory decoding takes: a small file can hold a picture of gigabytes.
 - **Downloads:** “Save as” is offered directly only for files in posts signed by a trusted key. For anything else, the user has to go through deliberate extra steps first: two questions, the second naming the file and its size. Names and MIME types prove nothing about a file's content. A content type without a well-known extension saves as .bin, so no type makes a file look like a program.
 - **Names and avatars are earned:** a key's From-Call, From-Name and Avatar, learned from its signed Topics, Replies and Avatar posts, are shown on its posts only once the user trusts that key. Until then, the client shows an identicon and a short hash of the key. Throwaway keys work, but stay faceless until someone trusts them. From prefixes are only believed on posts signed by a trusted key: anyone can put someone else's name or call sign there. Unsigned bare records are the exception: their From-Call and From-Name are shown marked as unverified, so simple sensors and experiments work. Readings that need to be trusted are signed.

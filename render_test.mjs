@@ -40,9 +40,13 @@ check('MiB', bytes(3 * 1048576), '3.0 MiB');
 // files to save: only a MIME escape names itself, the rest by their hash
 {
 	const part = (rec) => R.parse(R.payload([rec]))[0];
-	const c2 = fileOf(part(R.codec2(8, Uint8Array.of(1, 2, 3, 4, 5, 6, 7))));
-	check('Codec2: the .c2 header back', hex(c2.data), 'c0dec2000808' + '00' + '01020304050607');
-	check('Codec2: named by its hash', c2.name, `${hex(blake2s(c2.data))}.c2`);
+	const c2file = Uint8Array.of(0xC0, 0xDE, 0xC2, 1, 0, 8, 0, 1, 2, 3, 4);
+	const c2 = fileOf(part(R.audio(c2file)));
+	check('Codec2: as it came', hex(c2.data), hex(c2file));
+	check('Codec2: named by its hash', c2.name, `${hex(blake2s(c2file))}.c2`);
+	const ogg = Uint8Array.from([...'OggS'].map((x) => x.charCodeAt(0)).concat([0, 2, ...new Array(20).fill(0), 1, 19], [...'OpusHead'].map((x) => x.charCodeAt(0)), [1, 1, 0, 0, 0x80, 0xBB, 0, 0, 0, 0, 0]));
+	check('Opus: as .opus', fileOf(part(R.audio(ogg))).name, `${hex(blake2s(ogg))}.opus`);
+	check('Audio it can\'t tell: .bin', fileOf(part(R.audio(Uint8Array.of(1, 2)))).name, `${hex(blake2s(Uint8Array.of(1, 2)))}.bin`);
 	const named = fileOf(part(R.mime('application/pdf', 'log.pdf', Uint8Array.of(37, 80))));
 	check('MIME with a name', [named.name, hex(named.data)].join(), 'log.pdf,2550');
 	check('MIME without a name', fileOf(part(R.mime('application/pdf', '', Uint8Array.of(37, 80)))).name, `${hex(blake2s(Uint8Array.of(37, 80)))}.pdf`);

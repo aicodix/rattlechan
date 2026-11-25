@@ -1,6 +1,7 @@
 // Tests for records.js. Run with: node records_test.mjs
 // Frames are built by hand or with the encoder, then parsed back.
 
+import { readFile } from 'node:fs/promises';
 import { blake2s } from './blake2s.js';
 import * as R from './records.js';
 
@@ -8,6 +9,7 @@ const { T } = R;
 const hex = (a) => Array.from(a, (b) => b.toString(16).padStart(2, '0')).join('');
 const bytes = (...a) => Uint8Array.from(a.flat());
 const fill = (n, v) => new Uint8Array(n).fill(v);
+const file = (name) => readFile(new URL(`./${name}`, import.meta.url));
 let checks = 0, failed = 0;
 
 function check(name, got, want) {
@@ -275,9 +277,9 @@ check('Request-Root is 19 or 35 bytes', R.requestRoot(1, fill(16, 0)).length + '
 	malformed('reply with short parent', R.payload([R.record(T.REPLY, [1, 0, 0, 0], fill(31, 0))]));
 	malformed('core record inside a post', R.payload([R.reply(ts, parentId, R.textUTF8('a'), R.bundle())]));
 	p = parses('bare media', R.payload([R.mention(fill(32, 1)), R.fromCall('A'), R.picture(fill(10, 1)),
-		R.toCall('B'), R.mime('text/plain', 'a.txt', fill(3, 0x41)), R.codec2(8, fill(7, 0))]));
+		R.toCall('B'), R.mime('text/plain', 'a.txt', fill(3, 0x41)), R.audio(fill(7, 0))]));
 	check('bare media are kept as bare records', p.map((x) => x.bare).join(), 'true,true,true,true');
-	check('prefix before bare WebP', p[1].chain[0].handle, 'A');
+	check('prefix before a bare Picture', p[1].chain[0].handle, 'A');
 	malformed('bare MIME with bad name', R.payload([R.record(T.MIME, [0x61, 0x2F, 0x62, 0, 0x2E, 0])]));
 	malformed('Mention cut short at the end of a post', R.payload([R.record(T.REPLY, [1, 0, 0, 0], parentId, [T.MENTION], fill(31, 1))]));
 }
@@ -331,9 +333,21 @@ check('Request-Root is 19 or 35 bytes', R.requestRoot(1, fill(16, 0)).length + '
 	malformed('MIME name of 65', post(raw('text/plain\0' + 'a'.repeat(65) + '\0')));
 	parses('MIME name of 64', post(raw('text/plain\0' + 'a'.repeat(64) + '\0')));
 	throws('encode bad MIME name', () => R.mime('text/plain', '../etc', fill(1, 0)));
-	const c = parses('Codec2', post(R.codec2(8, fill(438, 0x55))));
-	check('Codec2 mode', c[0].parts[0].mode, 8);
-	malformed('Codec2 without mode', post(R.record(T.CODEC2)));
+	// Audio by its first bytes: a .c2 file of any version, or Opus in Ogg
+	const c2 = (major, minor, mode, frames) => Uint8Array.from([0xC0, 0xDE, 0xC2, major, minor, mode, 0, ...fill(frames, 0x55)]);
+	const c = parses('Codec2', post(R.audio(c2(0, 8, 8, 500))));
+	check('Codec2: mode and frames', JSON.stringify(c[0].parts[0].audio), '{"format":"codec2","version":"0.8","mode":8,"name":"700C","frames":500}');
+	check('Codec2: any version', parses('Codec2 9.9', post(R.audio(c2(9, 9, 2, 4))))[0].parts[0].audio.name, '1600');
+	check('Codec2: a mode it doesn\'t name', R.audioInfo(c2(1, 0, 42, 0)).name, 'mode 42');
+	check('Codec2: the header alone', R.audioInfo(c2(0, 8, 8, 0)).frames, 0);
+	check('Codec2: cut short', R.audioInfo(Uint8Array.of(0xC0, 0xDE, 0xC2, 0, 8, 8)), null);
+	const opus = new Uint8Array(await file('examples/audio/voice.opus'));
+	check('Opus in Ogg', JSON.stringify(R.audioInfo(opus)), '{"format":"opus","channels":1,"rate":48000}');
+	check('Ogg without OpusHead', R.audioInfo(Uint8Array.from([...opus.subarray(0, 28), ...[...'OggHead!'].map((x) => x.charCodeAt(0)), ...opus.subarray(36, 60)])), null);
+	check('the Codec2 example', R.audioInfo(new Uint8Array(await file('examples/audio/voice.c2'))).name, '700C');
+	// anything else isn't malformed, only unknown
+	check('unknown audio', parses('unknown audio', post(R.audio(fill(9, 1))))[0].parts[0].audio, null);
+	check('empty audio', parses('empty audio', post(R.record(T.AUDIO)))[0].parts[0].audio, null);
 }
 
 // ------------------------------------------------ Signed and Keyed

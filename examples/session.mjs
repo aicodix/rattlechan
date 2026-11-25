@@ -133,7 +133,7 @@ export async function session({ file, rate = 48000, now = Math.floor(Date.now() 
 	post('DL1ABC', 'signed Topic with a file', R.payload([C.signRecords(keyOf(ANNA), R.topic(t0 + 520, smallestText('Log'),
 		R.mime('text/csv', 'log.csv', new TextEncoder().encode('time,call,rst\n15:02,PA3XYZ,59\n15:06,JA1ABC,57\n'))))]));
 	post('PA3XYZ', 'signed Topic with Codec2', R.payload([C.signRecords(keyOf(JAN), R.topic(t0 + 530, smallestText('Voice'),
-		R.codec2(8, Uint8Array.from({ length: 96 }, (_, i) => i * 37 & 255))))]));
+		R.audio(Uint8Array.from([0xC0, 0xDE, 0xC2, 0, 8, 8, 0, ...Array.from({ length: 96 }, (_, i) => i * 37 & 255)]))))]));
 
 	// a throwaway key revokes itself: logged and ignored
 	post('NOCALL', 'revocation of an untrusted key', C.revocations(keyOf(THROWAWAY)).retired);

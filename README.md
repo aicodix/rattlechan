@@ -28,7 +28,7 @@ Rattlechan is for the day nothing else works. Get it ready while everything stil
 * Compose shows the size and airtime of a post before you send it.
 * Listen, in Station, receives. Posts show in Inbox and Boards. The screen stays on while the app is open, as most phones stop the microphone once it goes dark.
 * If the receiver says there is no audio, or the phone was in the background, tap Listen again: it always starts over. Stop stops listening and anything going out.
-* Pictures go as they are: PNG, JPEG, GIF or WebP.
+* Pictures go as they are: PNG, JPEG, GIF or WebP. So do Codec2 (.c2) and Opus (.opus) recordings.
 * A station that missed part of a long post can still get it: Send again, on the post, sends new pieces of it, and any of them help. This works for anyone's post, so a station in range of both can pass it on.
 * Trust the keys of your team in the log, so their posts are kept and their pictures shown.
 * Export data now and then.
@@ -84,6 +84,7 @@ Early. The protocol is a v0 draft in [SPEC.md](SPEC.md) and will change while th
 * [examples/busy_test.mjs](examples/busy_test.mjs): the busy evening through the decoder, a station and the tree, seen as Petr, run with `node examples/busy_test.mjs`
 * [examples/avatars/](examples/avatars/): the avatars of the busy evening, 128x128 WebP drawn with Pillow, four of them animated
 * [examples/pictures/](examples/pictures/): small PNG, JPEG, GIF and WebP test pictures, still and animated, made with Pillow
+* [examples/audio/](examples/audio/): two seconds of a tone as Codec2 700C (.c2) and as Opus in Ogg (.opus), made with FFmpeg, for the tests
 * [station.js](station.js): what the station does with a received frame: parse, check signatures, reassemble Fragments, learn about keys, store in the tier trust puts it in, and replay the stored frames at startup; and new blocks of a decoded post, to send it again
 * [station_test.mjs](station_test.mjs): frames through the station into a store in memory, run with `node station_test.mjs`
 * [tree.js](tree.js): the BBS tree: signed posts gathered into conversations, on boards, direct or elsewhere, and the ones for the station in its inbox

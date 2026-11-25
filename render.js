@@ -1,7 +1,7 @@
 // Turning parsed records (records.js nodes) and station entries into DOM.
 // Received content only ever goes in as text, never as markup.
 
-import { T, decodeText, TEXT_TABLE } from './records.js';
+import { T, decodeText, TEXT_TABLE, audioInfo } from './records.js';
 import { blake2s } from './blake2s.js';
 import { pictureInfo, small, huge, decodedBytes, formatOf, WARN_MAX } from './pictures.js';
 
@@ -337,6 +337,26 @@ export function touchToPlay(box) {
 		box.addEventListener(type, (e) => e.pointerType === 'touch' && all('stop'));
 }
 
+// An Audio part by its bytes: Codec2 to save (browsers don't decode it),
+// Opus in Ogg also to play, but only when asked for: nothing plays by itself
+function audioPart(n, key) {
+	const info = audioInfo(n.body);
+	if (!info)
+		return el('div.part.dim', `🔊 audio that can't be read, ${bytes(n.body.length)} `, saveButton(n, key));
+	if (info.format === 'codec2')
+		return el('div.part', `🔊 Codec2 ${info.name}, ${bytes(info.frames)} of voice `, saveButton(n, key));
+	const play = el('button.small', 'Play');
+	play.onclick = () => {
+		const a = el('audio');
+		a.controls = true;
+		a.src = URL.createObjectURL(new Blob([n.body], { type: 'audio/ogg; codecs=opus' }));
+		a.onerror = () => a.replaceWith(el('span.dim', "this browser can't play Opus; save it instead"));
+		play.replaceWith(a);
+		a.play().catch(() => {});
+	};
+	return el('div.part', `🔊 Opus${info.channels === 2 ? ', stereo' : ''}, ${bytes(n.body.length)} `, play, ' ', saveButton(n, key));
+}
+
 // A picture part: PNG, JPEG, GIF or WebP by its bytes, whatever type it
 // claims. In a thread, one up to 1024x1024 under a trusted key's signature
 // is drawn right away, scaled to fit; any other only when asked for. An
@@ -424,10 +444,8 @@ const EXTENSIONS = Object.freeze({
 
 // A media part as a file: { name, data }. Only a MIME escape brings its
 // own name; everything else is named by the BLAKE2s-256 of the file, hex,
-// with the extension of its type. Codec2 gets the 7-byte .c2 header back:
-// magic C0 DE C2, version 0.8, the mode byte, flags 0. FFmpeg's demuxer
-// takes only major version 0 (minor 8 or later); Codec2's c2dec reads
-// just the magic and the mode.
+// with the extension of its type. Pictures and audio are saved as they
+// came, a Codec2 file as .c2 and Opus in Ogg as .opus.
 export function fileOf(n) {
 	let data, ext;
 	switch (n.type) {
@@ -436,11 +454,9 @@ export function fileOf(n) {
 		data = n.body;
 		ext = EXTENSIONS[pictureInfo(n.body)?.type] ?? 'bin';
 		break;
-	case T.CODEC2:
-		data = new Uint8Array(6 + n.body.length);
-		data.set([0xC0, 0xDE, 0xC2, 0, 8, n.mode, 0]);
-		data.set(n.body.subarray(1), 7);
-		ext = 'c2';
+	case T.AUDIO:
+		data = n.body;
+		ext = { codec2: 'c2', opus: 'opus' }[audioInfo(n.body)?.format] ?? 'bin';
 		break;
 	case T.MIME:
 		if (n.fileName)
@@ -558,8 +574,8 @@ function leaf(n, key = null) {
 		if (n.ignored)
 			return el('div.part.dim', `avatar ignored: ${n.ignored}`);
 		return picture(n, n.body, 'avatar', key);
-	case T.CODEC2:
-		return el('div.part', `🔊 Codec2 mode ${n.mode}, ${bytes(n.body.length - 1)} `, saveButton(n, key));
+	case T.AUDIO:
+		return audioPart(n, key);
 	case T.MIME:
 		// a picture is drawn whatever type it claims, anything else is a file
 		return picture(n, n.content, 'picture', key) ?? el('div.part', '📄 ', n.fileName || 'unnamed', el('span.dim', ` ${n.mime}, ${bytes(n.content.length)} `), saveButton(n, key));

@@ -43,7 +43,7 @@ export const T = Object.freeze({
 	TEXT_GB18030: 0x41,
 	TEXT_TABLE: 0x42,
 	TEXT_SCSU: 0x43,
-	CODEC2: 0x50,
+	AUDIO: 0x50,
 	PICTURE: 0x51,
 	AVATAR: 0x52,
 	MIME: 0xEF,
@@ -398,10 +398,9 @@ function checkValue(node, opts) {
 	case T.VOLTAGE:
 		node.value = u16(b, 0);
 		break;
-	case T.CODEC2:
-		if (n < 1)
-			bad('Codec2 without mode byte');
-		node.mode = b[0];
+	case T.AUDIO:
+		// a format it can't tell is shown to save, never malformed
+		node.audio = audioInfo(b);
 		break;
 	case T.MIME:
 		checkMime(node);
@@ -414,6 +413,25 @@ function checkValue(node, opts) {
 		if (isText(node.type))
 			checkTextRecord(node, opts);
 	}
+}
+
+// Codec2's modes by the byte its .c2 header stores (CODEC2_MODE)
+export const CODEC2_MODES = Object.freeze({ 0: '3200', 1: '2400', 2: '1600', 3: '1400', 4: '1300', 5: '1200', 8: '700C' });
+
+// What an Audio record holds, by its first bytes (SPEC.md, Audio): a Codec2
+// file (.c2: magic C0 DE C2, version, mode, flags, then the frames), of any
+// version, or Opus in Ogg (a page starting "OggS" whose first packet is the
+// OpusHead). null for anything else.
+export function audioInfo(b) {
+	if (b.length >= 7 && b[0] === 0xC0 && b[1] === 0xDE && b[2] === 0xC2)
+		return { format: 'codec2', version: `${b[3]}.${b[4]}`, mode: b[5], name: CODEC2_MODES[b[5]] ?? `mode ${b[5]}`, frames: b.length - 7 };
+	if (b.length >= 27 && b[0] === 0x4F && b[1] === 0x67 && b[2] === 0x67 && b[3] === 0x53 && b[4] === 0) {
+		const at = 27 + b[26];
+		const head = [0x4F, 0x70, 0x75, 0x73, 0x48, 0x65, 0x61, 0x64];
+		if (b.length >= at + 19 && head.every((c, i) => b[at + i] === c))
+			return { format: 'opus', channels: b[at + 9], rate: (b[at + 12] | b[at + 13] << 8 | b[at + 14] << 16 | b[at + 15] << 24) >>> 0 };
+	}
+	return null;
 }
 
 // Avatars are PNG, JPEG, GIF or WebP pictures or animations of 16K to
@@ -900,7 +918,7 @@ export const altitude = (millimetre) => fixed(T.ALTITUDE, sle32(millimetre, 'alt
 // direction in 0.01 degrees from true north, speed in 0.01 m/s
 export const wind = ({ direction, speed }) => fixed(T.WIND, intBytes(direction, 2, 0, 35999, 'wind direction'), le16(speed, 'wind speed'));
 
-export const codec2 = (mode, frames) => record(T.CODEC2, intBytes(mode, 1, 0, 255, 'Codec2 mode'), bytesOf(frames, undefined, 'frames'));
+export const audio = (bytes) => record(T.AUDIO, bytesOf(bytes, undefined, 'audio'));
 export const picture = (bytes) => record(T.PICTURE, bytesOf(bytes, undefined, 'picture'));
 export const avatar = (bytes) => record(T.AVATAR, bytesOf(bytes, undefined, 'avatar'));
 
