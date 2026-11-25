@@ -412,22 +412,52 @@ const level = (peak) => {
 	$('level').classList.toggle('hot', Date.now() < hotUntil);
 };
 
-// the screen stays on as long as the app is open: a phone stops the
-// microphone and the audio once its screen goes dark; the browser drops
-// the lock when the page is hidden, so it is taken again when it shows,
-// and on a tap where it was refused without one (or the system dropped it)
+// The screen stays on as long as the app is open: a phone stops the
+// microphone and the audio once its screen goes dark. The browser drops the
+// lock when the page is hidden, so it is taken again when it shows, and iOS
+// may drop it while the page is shown, when the microphone prompt appears,
+// say, so then it is asked for again a second later, at most every ten
+// seconds by itself; a tap asks again too, and so do Listen and the end of
+// a transmission. The Station tab says how it stands, so a phone that still
+// goes dark shows why: kept on, refused with the browser's reason, let go
+// of by the system, or not possible in this browser.
+const showScreen = (text, ok = false) => {
+	$('screen').textContent = text;
+	$('screen').className = ok ? 'dim' : 'warn';
+};
 let waking = false;
+let retried = 0;
 async function keepAwake() {
-	if (waking || (wakeLock && !wakeLock.released) || document.visibilityState !== 'visible' || !('wakeLock' in navigator))
+	if (!('wakeLock' in navigator)) {
+		showScreen("The screen may turn off: this browser can't keep it on.");
+		return;
+	}
+	if (waking || (wakeLock && !wakeLock.released) || document.visibilityState !== 'visible')
 		return;
 	waking = true;
 	try {
-		wakeLock = await navigator.wakeLock.request('screen');
-	} catch {}
+		const lock = await navigator.wakeLock.request('screen');
+		wakeLock = lock;
+		showScreen('The screen stays on while the app is open.', true);
+		lock.addEventListener('release', () => {
+			if (wakeLock !== lock)
+				return;
+			wakeLock = null;
+			if (document.visibilityState !== 'visible')
+				return;
+			showScreen('The screen may turn off: the system let go of it. Tap anywhere to keep it on.');
+			if (Date.now() - retried >= 10000) {
+				retried = Date.now();
+				setTimeout(keepAwake, 1000);
+			}
+		});
+	} catch (err) {
+		showScreen(`The screen may turn off: refused (${err.name}${err.message ? `: ${err.message}` : ''}). Tap anywhere to try again.`);
+	}
 	waking = false;
 }
 document.addEventListener('visibilitychange', keepAwake);
-document.addEventListener('pointerdown', keepAwake);
+document.addEventListener('pointerdown', keepAwake, true);
 keepAwake();
 
 async function fillInputs(current) {
@@ -496,6 +526,8 @@ function startListening() {
 		}
 		receiver = r;
 		heard = Date.now();
+		// the microphone prompt may have let go of the screen
+		keepAwake();
 		listeningText = `Listening at ${r.rate} Hz${r.label ? ` on ${r.label}` : ''}.`;
 		$('receiver').textContent = listeningText;
 		status('listening');
@@ -1916,6 +1948,7 @@ async function transmit(ctx, d, how, say, stop, step = null) {
 		} finally {
 			sending = null;
 			deafUntil = Date.now() + 1500;
+			keepAwake();
 			stop.hidden = true;
 			status(receiver ? 'listening' : 'not listening');
 			refreshStorage();

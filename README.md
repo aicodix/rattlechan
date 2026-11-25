@@ -26,7 +26,7 @@ Rattlechan is for the day nothing else works. Get it ready while everything stil
 * Collected posts wait in the Outbox, even across reloads. Whoever is at the radio sends them all at once with Send all. Take the pictures, then hand the phone over.
 * Photos are shrunk to about 30 KiB and lose their metadata and GPS position on the way.
 * Compose shows the size and airtime of a post before you send it.
-* Listen, in Station, receives. Posts show in Inbox and Boards. The screen stays on while the app is open, as most phones stop the microphone once it goes dark.
+* Listen, in Station, receives. Posts show in Inbox and Boards. The screen stays on while the app is open, as most phones stop the microphone once it goes dark; under the receiver, Station says whether the phone lets it, and why not.
 * If the receiver says there is no audio, or the phone was in the background, tap Listen again: it always starts over. Stop stops listening and anything going out.
 * Pictures go as they are: PNG, JPEG, GIF or WebP. So do Codec2 (.c2) and Opus (.opus) recordings: Opus plays in the app when you tap Play, Codec2 is saved and played with Codec2's own tools or FFmpeg for now.
 * A station that missed part of a long post can still get it: Send again, on the post, sends new pieces of it, and any of them help. This works for anyone's post, so a station in range of both can pass it on.
