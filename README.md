@@ -26,7 +26,10 @@ Rattlechan is for the day nothing else works. Get it ready while everything stil
 * Collected posts wait in the Outbox, even across reloads. Whoever is at the radio sends them all at once with Send all. Take the pictures, then hand the phone over.
 * Photos are shrunk to about 30 KiB and lose their metadata and GPS position on the way.
 * Compose shows the size and airtime of a post before you send it.
-* Listen, in Station, receives. Posts show in Inbox and Boards.
+* Listen, in Station, receives. Posts show in Inbox and Boards. The screen stays on while the app is open, as most phones stop the microphone once it goes dark.
+* If the receiver says there is no audio, or the phone was in the background, tap Listen again: it always starts over. Stop stops listening and anything going out.
+* Pictures go as they are: PNG, JPEG, GIF or WebP.
+* A station that missed part of a long post can still get it: Send again, on the post, sends new pieces of it, and any of them help. This works for anyone's post, so a station in range of both can pass it on.
 * Trust the keys of your team in the log, so their posts are kept and their pictures shown.
 * Export data now and then.
 
@@ -58,7 +61,7 @@ Early. The protocol is a v0 draft in [SPEC.md](SPEC.md) and will change while th
 * [crypto.js](crypto.js): glue for crypto.wasm: keys, signing, the `verify` callback for the parser and the two revocations of a key
 * [crypto_test.mjs](crypto_test.mjs): tests with CRYPTO's known answers, run with `node crypto_test.mjs`
 * [hydra.wasm](hydra.wasm): the [HYDRA](https://github.com/xdsopl/hydra) module, copied as it is from its `docs/hydra.wasm` at commit 87fa55a
-* [hydra.js](hydra.js): glue for hydra.wasm: planning, encoding into Fragments, verifying, decoding, the relay check, and a reassembler that collects blocks and asks for missing ones with Request-Root
+* [hydra.js](hydra.js): glue for hydra.wasm: planning, encoding into Fragments, verifying, decoding, the relay check, random block indices, and a reassembler that collects blocks and asks for missing ones with Request-Root
 * [hydra_test.mjs](hydra_test.mjs): tests with HYDRA's planning table and a lossy channel, run with `node hydra_test.mjs`
 * [robusto_encoder_44100.wasm](robusto_encoder_44100.wasm), [robusto_encoder_48000.wasm](robusto_encoder_48000.wasm), [robusto_decoder_44100.wasm](robusto_decoder_44100.wasm), [robusto_decoder_48000.wasm](robusto_decoder_48000.wasm): the ROBUSTO modules from the robusto branch of [aicodix/modem](https://github.com/aicodix/modem/tree/robusto), copied as they are from its `docs/temp/`: the decoders at commit a469d2e, the encoders at a4affe8
 * [robusto.js](robusto.js): glue for the ROBUSTO modules: picking a mode, encoding frames and pings to audio, and a streaming decoder that turns samples into events
@@ -80,19 +83,23 @@ Early. The protocol is a v0 draft in [SPEC.md](SPEC.md) and will change while th
 * [examples/busy.mjs](examples/busy.mjs): a busy evening of ten stations as one seamless WAV, to fill the Inbox and the Boards: threads several levels deep on the board for everyone and on "contest", "weather" and "club", and direct conversations; import the private key 0808…08 ("08" 32 times) as Petr, OK1ABC, to see his inbox
 * [examples/busy_test.mjs](examples/busy_test.mjs): the busy evening through the decoder, a station and the tree, seen as Petr, run with `node examples/busy_test.mjs`
 * [examples/avatars/](examples/avatars/): the avatars of the busy evening, 128x128 WebP drawn with Pillow, four of them animated
-* [station.js](station.js): what the station does with a received frame: parse, check signatures, reassemble Fragments, learn about keys, store in the tier trust puts it in, and replay the stored frames at startup
+* [examples/pictures/](examples/pictures/): small PNG, JPEG, GIF and WebP test pictures, still and animated, made with Pillow
+* [station.js](station.js): what the station does with a received frame: parse, check signatures, reassemble Fragments, learn about keys, store in the tier trust puts it in, and replay the stored frames at startup; and new blocks of a decoded post, to send it again
 * [station_test.mjs](station_test.mjs): frames through the station into a store in memory, run with `node station_test.mjs`
 * [tree.js](tree.js): the BBS tree: signed posts gathered into conversations, on boards, direct or elsewhere, and the ones for the station in its inbox
 * [tree_test.mjs](tree_test.mjs): conversations, boards and the inbox from posts through a station, run with `node tree_test.mjs`
 * [index.html](index.html), [app.js](app.js), [app.css](app.css), [render.js](render.js): the GUI: a log of everything received and sent, sending signed posts, the station's keys, and the station's settings, receiver and storage; serve the directory with `python3 -m http.server` and open it
 * [render_test.mjs](render_test.mjs): what render.js does without a document, such as telling animated WebP apart and identicons, run with `node render_test.mjs`
-* [sender.js](sender.js): sending: a post as records, addressed or for everyone, in one frame or as Fragments with extra blocks, only in modes that decode at the chosen SNR, chained into one seamless transmission
+* [pictures.js](pictures.js): PNG, JPEG, GIF and WebP told by their first bytes, with their size and whether they move, read from the headers without decoding
+* [pictures_test.mjs](pictures_test.mjs): the test pictures and hand-made headers, run with `node pictures_test.mjs`
+* [sender.js](sender.js): sending: a post as records, addressed or for everyone, with attached files (pictures as they are), in one frame or as Fragments with extra blocks at random indices, only in modes that decode at the chosen SNR, chained into one seamless transmission
 * [sender_test.mjs](sender_test.mjs): posts composed, split, chained and decoded again with the real modem and HYDRA, run with `node sender_test.mjs`
 * [keys.js](keys.js): the station's own signing keys in the secrets: generated or imported, each with its label, From-Call, From-Name and both revocations
 * [keys_test.mjs](keys_test.mjs): keys in a store in memory, their revocations, signing and the secrets archive, run with `node keys_test.mjs`
-* [transmitter.js](transmitter.js): plays a transmission out of the default output
-* [receiver.js](receiver.js), [capture_worklet.js](capture_worklet.js), [decoder_worker.js](decoder_worker.js): microphone to AudioWorklet to the ROBUSTO decoder in a worker, and decoding recordings
+* [transmitter.js](transmitter.js): plays a transmission out of the default output, through the receiver's audio while listening and a fresh one otherwise, opened right in the tap, as iOS needs
+* [receiver.js](receiver.js), [capture_worklet.js](capture_worklet.js), [decoder_worker.js](decoder_worker.js): microphone to AudioWorklet to the ROBUSTO decoder in a worker, and decoding recordings; never waits on the audio system, which can hang on iOS
 * [manifest.webmanifest](manifest.webmanifest), [sw.js](sw.js), [icon.svg](icon.svg), icon-180.png, icon-192.png, icon-512.png: what makes it an installable web app that works offline
+* [sw_test.mjs](sw_test.mjs): every file the page and its modules load is in the service worker's list, run with `node sw_test.mjs`
 
 ## License
 
