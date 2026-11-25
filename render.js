@@ -369,11 +369,12 @@ function picture(n, data, label, key) {
 }
 
 // a picture as an element of class cls, an animated one still until
-// played; with opens, tapping it opens it at full size
-async function drawn(data, info, label, cls, opens) {
+// played, or playing with plays; with opens, tapping it opens it at full
+// size
+async function drawn(data, info, label, cls, opens, plays = false) {
 	const blob = new Blob([data], { type: info.type });
 	let e;
-	if (info.animated) {
+	if (info.animated && !plays) {
 		e = await animated(blob, label, cls);
 	} else {
 		e = el(`img.${cls}`);
@@ -389,12 +390,12 @@ async function drawn(data, info, label, cls, opens) {
 }
 
 // the picture at its own size, scrolling if it doesn't fit, closed by its
-// button, Escape or a tap beside it
+// button, Escape or a tap beside it; an animated one plays at once, as the
+// tap that opened it asked to watch it
 async function fullSize(data, info, label) {
 	const close = el('button.small', 'Close');
 	const dialog = el('dialog.picture-dialog', el('div.row', el('span.dim', `${formatOf(info)}, ${info.width}x${info.height}, ${bytes(data.length)}`), close),
-		el('div.picture-full', await drawn(data, info, label, 'picture-natural', false)));
-	touchToPlay(dialog);
+		el('div.picture-full', await drawn(data, info, label, 'picture-natural', false, true)));
 	document.body.append(dialog);
 	const done = () => {
 		dialog.close();
