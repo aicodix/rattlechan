@@ -17,6 +17,7 @@ import { conversations, boards } from './tree.js';
 import { pictureInfo, huge, trimmed, FORMATS } from './pictures.js';
 import * as view from './render.js';
 import { running } from './version.js';
+import { simd } from './wasm.js';
 
 const $ = (id) => document.getElementById(id);
 const MiB = 1024 * 1024;
@@ -350,7 +351,9 @@ view.configure({
 
 await restart();
 
-if (!crypto || !hydra)
+if (!simd)
+	status('this browser lacks WebAssembly SIMD: Rattlechan can\'t run here', 'warn');
+else if (!crypto || !hydra)
 	status(`${!crypto ? 'CRYPTO' : 'HYDRA'} failed to load: ${!crypto ? 'signatures stay unchecked' : 'fragments stay apart'}`, 'warn');
 else if ($('status').textContent === 'starting …')
 	status(`${items.length} frames`);

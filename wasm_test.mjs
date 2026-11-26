@@ -1,7 +1,7 @@
 // Tests for wasm.js. Run with: node wasm_test.mjs
 // Uses a hand-written module exporting f() returning 42.
 
-import { instantiate } from './wasm.js';
+import { instantiate, simd } from './wasm.js';
 
 let checks = 0, failed = 0;
 
@@ -12,6 +12,8 @@ function check(name, got, want) {
 		console.log('FAIL', name, '\n  got ', got, '\n  want', want);
 	}
 }
+
+check('Node.js runs SIMD', simd, true);
 
 const bytes = Uint8Array.of(
 	0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, // magic, version
