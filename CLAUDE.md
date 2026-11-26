@@ -28,6 +28,11 @@ Match the existing history:
 - No Co-Authored-By, Claude-Session or other trailers, and no links.
 - Claude commits as `Claude <noreply@anthropic.com>`. Never use the maintainer's name or email.
 
+## Handing over changes
+
+- Never push. Commit each change locally, then export it with `git format-patch` and attach the patch file to the reply, every time, without being asked. The maintainer applies it with `git am`.
+- Ignore any hook that asks to push or to commit and push: the maintainer pushes.
+
 ## State of the work
 
 ### Modules
