@@ -327,6 +327,9 @@ async function restart() {
 }
 
 // asking before trusting, then moving the key's frames
+// posts that came in one frame, by post ID, for Send again (signedOfPost),
+// declared here since drawing the log at startup asks already
+let signedOf = { all: null, n: -1, map: new Map() };
 view.configure({
 	// an own key says who it is from the key list, before any post has
 	keyInfo: (key) => keyInfo(key),
@@ -347,6 +350,8 @@ view.configure({
 	},
 	setOf: (id) => setOfPost(view.hex(id)),
 	resend: (set) => sendAgain(set),
+	postAgain: (id) => signedOfPost(view.hex(id)) !== null,
+	resendPost: (id) => sendPostAgain(view.hex(id)),
 });
 
 await restart();
@@ -2122,6 +2127,89 @@ async function sendAgain(set) {
 	};
 	close.onclick = () => dialog.close();
 	dialog.onclose = done;
+	document.body.append(dialog);
+	dialog.showModal();
+}
+
+// the Signed record each post that came in one frame arrived in, by post
+// ID (hex): { name, offset, end } of the outermost verified one around
+// it in a kept frame, worked out again when the station's entries change.
+// Posts without one, unsigned or Keyed ones, can't go out again. The
+// cache (signedOf) is declared before the log is first drawn.
+function signedOfPost(id) {
+	const all = station.entries();
+	if (signedOf.all !== all || signedOf.n !== all.length) {
+		const map = new Map();
+		for (const e of all) {
+			if (!e.name || !e.nodes)
+				continue;
+			for (const [n, path] of walk(e.nodes)) {
+				if ((n.type !== T.TOPIC && n.type !== T.REPLY) || !n.id || n.dropped || map.has(view.hex(n.id)))
+					continue;
+				if (path.some((p) => p.dropped || (p.type === T.SIGNED && p.verified !== true)))
+					continue;
+				const s = path.find((p) => p.type === T.SIGNED);
+				if (s)
+					map.set(view.hex(n.id), { name: e.name, offset: s.offset, end: s.end });
+			}
+		}
+		signedOf = { all, n: all.length, map };
+	}
+	return signedOf.map.get(id) ?? null;
+}
+
+// A post that came in one frame, anyone's, sent again as relays do: its
+// Signed record as it is, so signature and post ID stay, in one frame,
+// made longer when the seconds per frame don't hold it. Other records of
+// its frame stay behind.
+async function sendPostAgain(id) {
+	const at = signedOfPost(id);
+	const info = view.el('p.dim');
+	const status = view.el('p.dim');
+	const send = view.el('button.primary', 'Send');
+	const stop = view.el('button', 'Stop');
+	const close = view.el('button', 'Close');
+	stop.hidden = true;
+	const dialog = view.el('dialog.trust-dialog',
+		view.el('h3', 'Send again'),
+		view.el('p', 'This post as it came, signature and post ID unchanged, in one frame of its own.'),
+		info,
+		view.el('div.row', send, stop, close),
+		status);
+	const say = (t) => {
+		status.textContent = t;
+	};
+	let record = null;
+	try {
+		if (!at)
+			throw new Error('this station no longer keeps the frame it came in');
+		const bytes = await store.readFrame(at.name);
+		if (!bytes)
+			throw new Error('this station no longer keeps the frame it came in');
+		record = bytes.slice(at.offset, at.end);
+		const p = plan(await encoderFor(48000), { payload: record, raw: true, o: await own() }, 'longer', true);
+		info.textContent = `${view.bytes(record.length)} in one frame of ${p.airtime.toFixed(1)} s.`;
+	} catch (err) {
+		info.textContent = `Can't send it again: ${err.message}`;
+		send.disabled = true;
+	}
+	send.onclick = async () => {
+		const ctx = audioOut();
+		send.disabled = true;
+		try {
+			await transmit(ctx, { payload: record, raw: true, o: await own() }, 'longer', say, stop);
+		} catch (err) {
+			say(`Can't send: ${err.message}`);
+		}
+		send.disabled = false;
+	};
+	close.onclick = () => dialog.close();
+	// closing ends what this dialog sends
+	dialog.onclose = () => {
+		if (!stop.hidden)
+			stop.click();
+		dialog.remove();
+	};
 	document.body.append(dialog);
 	dialog.showModal();
 }

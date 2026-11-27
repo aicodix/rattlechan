@@ -51,7 +51,9 @@ const fixed = (v, scale, digits) => (v / scale).toFixed(digits);
 //   reply(id) when the user wants to answer a post
 //   setOf(id) -> the decoded fragment set a post arrived in, or null
 //   resend(set) when the user wants to send new blocks of that set
-let station = { keyInfo: (key) => ({ key, trusted: false }), trust: () => {}, reply: () => {}, setOf: () => null, resend: () => {} };
+//   postAgain(id) whether a post that came in one frame can go out again
+//   resendPost(id) when the user wants to send that post again
+let station = { keyInfo: (key) => ({ key, trusted: false }), trust: () => {}, reply: () => {}, setOf: () => null, resend: () => {}, postAgain: () => false, resendPost: () => {} };
 export const configure = (s) => {
 	station = s;
 };
@@ -611,6 +613,11 @@ function post(n, key) {
 		if (set) {
 			const again = el('button.small', 'Send again');
 			again.onclick = () => station.resend(set);
+			actions.append(again);
+		} else if (station.postAgain(n.id)) {
+			// one that came in one frame, its Signed record as it is
+			const again = el('button.small', 'Send again');
+			again.onclick = () => station.resendPost(n.id);
 			actions.append(again);
 		}
 		e.append(actions);
