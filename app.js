@@ -1922,6 +1922,8 @@ async function transmit(ctx, d, how, say, stop, step = null) {
 	// longest ago first; a raw payload goes as it is
 	if (!d.raw && !d.frames && await station.relayFill())
 		s.frames = fill(E, s.frames, (await station.relayable()).map((r) => r.bytes), opts).frames;
+	// the frames as they go out, for the caller to keep (parking)
+	d.planned = { frames: s.frames, K: s.K, seconds: s.seconds, snr: s.snr };
 	// one transmission: frames chained back to back, each made as it is
 	// played, kept once all went out
 	const air = async (frames, what) => {
@@ -1933,6 +1935,8 @@ async function transmit(ctx, d, how, say, stop, step = null) {
 		sending = playParts(ctx, chainParts(E, frames, opts), outputLevel());
 		$('send-button').disabled = true;
 		$('outbox-send').disabled = true;
+		for (const b of document.querySelectorAll('#parked-spots button.primary'))
+			b.disabled = true;
 		stop.onclick = () => sending?.stop();
 		stop.hidden = false;
 		say(`Sending ${what}, ${c.seconds.toFixed(1)} s …`);
@@ -2303,6 +2307,7 @@ const setOneAtATime = (on) => {
 	remember('oneAtATime', on ? '1' : '0');
 	$('one-at-a-time').checked = on;
 	$('outbox-one-at-a-time').checked = on;
+	$('parked-one-at-a-time').checked = on;
 };
 
 $('send-button').onclick = async () => {
@@ -2447,6 +2452,7 @@ let showingOutbox = 0;
 async function showOutbox() {
 	if (!store || $('outbox').hidden)
 		return;
+	showParked();
 	const mine = ++showingOutbox;
 	const posts = await collected();
 	const list = keys ? await keys.list() : [];
@@ -2596,6 +2602,7 @@ async function outboxEstimate() {
 		return;
 	if (!d.payload) {
 		$('outbox-send').disabled = true;
+		$('outbox-full').hidden = true;
 		$('outbox-choice').hidden = true;
 		$('outbox-info').textContent = d.why;
 		return;
@@ -2603,41 +2610,170 @@ async function outboxEstimate() {
 	const n = d.posts.length;
 	showPlan(await encoderFor(48000), d, OUTBOX_UI);
 	$('outbox-info').prepend(`${n === 1 ? 'One post' : `${n} posts`}, `);
+	// every parking spot taken: Send all waits for one to be deleted
+	const full = (await parked()).length >= PARK_SPOTS;
+	if (mine !== outboxEstimating)
+		return;
+	$('outbox-full').hidden = !full;
+	$('outbox-full').textContent = full ? `All ${PARK_SPOTS} parking spots are taken: delete a parked one below to send.` : '';
+	if (full)
+		$('outbox-send').disabled = true;
 }
 
 for (const r of document.querySelectorAll('input[name=outbox-how]'))
 	r.onchange = outboxEstimate;
 $('outbox-one-at-a-time').onchange = () => setOneAtATime($('outbox-one-at-a-time').checked);
 
-$('outbox-send').onclick = async () => {
-	const ctx = audioOut();
+// Send all: once any of it went out in full, its posts and the frames as
+// they went out are parked in a free spot, newest first, and leave the
+// Outbox, ones collected meanwhile staying. With every spot taken, Send
+// all waits for one to be deleted.
+$('outbox-send').onclick = () => sendAll(audioOut());
+
+async function sendAll(ctx) {
 	$('outbox-send').disabled = true;
 	const say = (t) => {
 		$('outbox-status').textContent = t;
 	};
 	try {
+		if ((await parked()).length >= PARK_SPOTS)
+			throw new Error(`all ${PARK_SPOTS} parking spots are taken: delete a parked one first`);
 		const d = await outboxDraft();
 		if (!d.payload)
 			throw new Error(d.why);
 		const how = document.querySelector('input[name=outbox-how]:checked')?.value ?? 'fragments';
 		const step = how === 'fragments' && oneAtATime() ? { next: $('outbox-send'), finish: $('outbox-finish') } : null;
-		// finished with too few fragments to decode, the posts stay to be
-		// sent again, with the same IDs
+		// finished with too few fragments to decode counts: they went out
 		const done = await transmit(ctx, d, how, say, $('outbox-stop'), step);
-		if (done === 'short')
-			say(`${$('outbox-status').textContent} The posts stay here.`);
-		if (done === true) {
-			// the ones sent leave, ones collected meanwhile stay
-			const sent = new Set(d.posts.map((p) => `${p.key}_${p.collected}`));
-			await setCollected((await collected()).filter((p) => !sent.has(`${p.key}_${p.collected}`)));
+		if (done === true || done === 'short') {
+			const p = d.planned;
+			const now = Date.now();
+			await setParked([{ posts: d.posts, frames: p.frames.map(toBase64), K: p.K, seconds: p.seconds, snr: p.snr, parked: now, sent: [now] }, ...await parked()]);
+			const sent = new Set(d.posts.map((x) => `${x.key}_${x.collected}`));
+			await setCollected((await collected()).filter((x) => !sent.has(`${x.key}_${x.collected}`)));
 			outboxWith.clear();
+			say(`${$('outbox-status').textContent} Parked below, to be sent again.`);
 			showOutbox();
 		}
 	} catch (err) {
 		say(`Can't send: ${err.message}`);
 		outboxEstimate();
 	}
-};
+}
+
+// ---------------------------------------------------------------- parked
+
+// What Send all sent, frozen, in up to PARK_SPOTS spots, newest first, in
+// data/parked.json as { parked: [{ posts, frames, K, seconds, snr, parked,
+// sent }] }: the posts as the Outbox held them, to show, the frames as
+// they went out in base64, with the seconds and SNR they were made for, K
+// the fragments needed (or the frame count), when it was parked, which
+// tells the spots apart, and when each sending went out. Send all again
+// sends the very same frames, nothing signed or split anew, so nothing
+// can differ.
+const PARK_SPOTS = 5;
+const parked = async () => (await store.getData('parked'))?.parked ?? [];
+const setParked = (list) => store.putData('parked', { parked: list });
+// the spot whose Send all again is busy, which isn't drawn anew meanwhile
+let parkedBusy = null;
+
+// what a parked post is, on one line
+function postLine(p) {
+	if (p.again) {
+		const a = station.analyze(fromBase64(p.again));
+		let post = null;
+		for (const [n] of a.nodes ? walk(a.nodes) : [])
+			post ??= n.type === T.TOPIC || n.type === T.REPLY ? n : null;
+		return view.el('div.outbox-post', post?.type === T.TOPIC ? view.el('strong', view.textOf(post.subject, 'subject')) : view.el('strong', 'Reply'), view.el('span.dim', 'sent again, as it came'));
+	}
+	const [to, handle] = p.to ? Object.entries(p.to)[0] : [];
+	const where = p.kind === 'reply' ? ['↩ to ', view.el('span.key', p.parent.slice(0, 8))]
+		: to ? [`${TO_SHOWN[to]} `, to === 'key' ? view.el('span.key', handle.slice(0, 8)) : typedText('span', handle)]
+		: ['to everyone'];
+	return view.el('div.outbox-post', p.kind === 'topic' ? typedText('strong', p.subject) : view.el('strong', 'Reply'),
+		view.el('span.dim', 'signed by ', view.el('span.key', p.key.slice(0, 8)), ' · ', ...where));
+}
+
+// one parked spot: its posts, frames and sendings, Send all again, Delete
+async function parkedSpot(p, E) {
+	const lengths = p.frames.map((f) => fromBase64(f).length);
+	const n = lengths.length;
+	const info = view.el('p.dim');
+	try {
+		const seconds = airtime(E, lengths, { seconds: p.seconds, snr: p.snr, lead: leadSymbols() });
+		info.textContent = `${p.posts.length === 1 ? 'One post' : `${p.posts.length} posts`} in ${n === 1 ? 'one frame' : `${n} fragments${p.K < n ? `, any ${p.K} of which decode ${p.posts.length === 1 ? 'it' : 'them'}` : ''}`}, ${seconds.toFixed(1)} s. Sent ${p.sent.map((t) => view.when(t)).join(', ')}.`;
+	} catch (err) {
+		info.textContent = err.message;
+	}
+	const send = view.el('button.primary', 'Send all again');
+	const stop = view.el('button', 'Stop');
+	const finish = view.el('button', 'Finish');
+	const remove = view.el('button.remove', 'Delete');
+	const yes = view.el('button.danger', 'Delete');
+	const no = view.el('button', 'Cancel');
+	const confirm = view.el('div.remove-confirm', view.el('p.warn', 'Delete these parked posts? They can\'t be sent again then.'), view.el('div.row', yes, no));
+	const status = view.el('p.dim');
+	stop.hidden = finish.hidden = confirm.hidden = true;
+	send.disabled = !!sending || stepping;
+	remove.disabled = stepping;
+	remove.onclick = () => {
+		confirm.hidden = false;
+	};
+	no.onclick = () => {
+		confirm.hidden = true;
+	};
+	yes.onclick = async () => {
+		await setParked((await parked()).filter((x) => x.parked !== p.parked));
+		showOutbox();
+	};
+	send.onclick = async () => {
+		const ctx = audioOut();
+		send.disabled = true;
+		parkedBusy = p.parked;
+		const say = (t) => {
+			status.textContent = t;
+		};
+		try {
+			const frames = p.frames.map(fromBase64);
+			const step = frames.length > 1 && oneAtATime() ? { next: send, finish } : null;
+			const done = await transmit(ctx, { frames, K: p.K, o: { ...await own(), seconds: p.seconds, snr: p.snr } }, 'fragments', say, stop, step);
+			if (done === true || done === 'short')
+				await setParked((await parked()).map((x) => x.parked === p.parked ? { ...x, sent: [...x.sent, Date.now()] } : x));
+		} catch (err) {
+			say(`Can't send: ${err.message}`);
+		}
+		parkedBusy = null;
+		// the status stays with the spot drawn anew
+		const said = status.textContent;
+		await showParked();
+		const again = document.querySelector(`#parked-spots [data-parked="${p.parked}"] p.status`);
+		if (again)
+			again.textContent = said;
+	};
+	status.classList.add('status');
+	const card = view.el('div.key-card', view.el('div.parked-posts', ...p.posts.map(postLine)), info, view.el('div.row', send, stop, finish, remove), confirm, status);
+	card.dataset.parked = p.parked;
+	return card;
+}
+
+let showingParked = 0;
+async function showParked() {
+	if (!store || parkedBusy !== null)
+		return;
+	const mine = ++showingParked;
+	const list = await parked();
+	const E = await encoderFor(48000);
+	const cards = [];
+	for (const p of list)
+		cards.push(await parkedSpot(p, E));
+	if (mine !== showingParked || parkedBusy !== null)
+		return;
+	$('parked').hidden = !list.length;
+	$('parked-step-field').hidden = !list.some((p) => p.frames.length > 1);
+	$('parked-spots').replaceChildren(...cards);
+}
+
+$('parked-one-at-a-time').onchange = () => setOneAtATime($('parked-one-at-a-time').checked);
 
 // ---------------------------------------------------------------- drafts
 
@@ -2769,6 +2905,7 @@ await fillKeys();
 await showRelay();
 $('one-at-a-time').checked = oneAtATime();
 $('outbox-one-at-a-time').checked = oneAtATime();
+$('parked-one-at-a-time').checked = oneAtATime();
 setKind('topic');
 // the text encoders are built on first use, which takes a moment: build
 // them while nothing else happens, not on the first post's estimate

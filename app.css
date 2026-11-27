@@ -401,6 +401,11 @@ a { color: var(--accent); }
 .draft-line strong { flex: 0 1 auto; max-width: 45%; }
 .draft-line > span:not(.dim) { flex: 1 1 0; min-width: 0; }
 .draft-line .dim { flex: 0 0 auto; margin-left: auto; font-size: 14px; }
+#parked { margin-top: 24px; }
+#parked-spots { display: flex; flex-direction: column; gap: 12px; }
+#parked-spots .key-card { margin: 0; }
+#parked-spots p.status:empty { display: none; }
+#parked .parked-posts .outbox-post:first-child { border-top: 0; padding-top: 0; margin-top: 0; }
 .thread-bar { margin: 4px 0 8px; }
 .thread-subject { overflow-wrap: anywhere; }
 .tree-node { margin: 0; }

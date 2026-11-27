@@ -105,8 +105,15 @@
 			<button id="outbox-send" class="primary" disabled>Send all</button>
 			<button id="outbox-stop" hidden>Stop</button>
 			<button id="outbox-finish" hidden>Finish</button>
+			<span id="outbox-full" class="dim" hidden></span>
 		</div>
 		<p id="outbox-status" class="dim"></p>
+		<div id="parked" hidden>
+			<h2>Parked</h2>
+			<p class="dim">What Send all sent, frozen, in up to five spots, newest first: Send all again sends the very same frames, so every post keeps its ID. Delete one once it is through.</p>
+			<label class="check" id="parked-step-field"><input type="checkbox" id="parked-one-at-a-time"> <span>fragments one at a time, pressing Send for each</span></label>
+			<div id="parked-spots"></div>
+		</div>
 	</section>
 
 	<section id="station" class="tab" hidden>
