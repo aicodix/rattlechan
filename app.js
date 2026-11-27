@@ -686,6 +686,7 @@ $('import').onchange = async () => {
 		await trustOwn();
 		await fillKeys();
 		await showRelay();
+		showDrafts();
 	} catch (err) {
 		$('import-result').textContent = `Can't import ${file.name}: ${err.message}`;
 	}
@@ -744,6 +745,7 @@ $('delete-all').onclick = async () => {
 		await trustOwn();
 		await fillKeys();
 		await showRelay();
+		showDrafts();
 		$('import-result').textContent = '';
 		$('delete-result').textContent = `Deleted ${n} file${n === 1 ? '' : 's'}.`;
 		status('all data deleted');
@@ -1204,6 +1206,7 @@ function setKind(k) {
 		b.setAttribute('aria-checked', b.dataset.kind === k);
 	$('signing').hidden = k === 'hex';
 	$('collect-button').hidden = k === 'hex';
+	$('draft-button').hidden = k === 'hex';
 	$('photo-field').hidden = k === 'hex';
 	$('subject-field').hidden = k !== 'topic';
 	$('to-field').hidden = k !== 'topic';
@@ -2183,7 +2186,7 @@ $('test-output').onclick = async () => {
 
 // the post can't change while its fragments go out one at a time
 function lockSend(on) {
-	for (const e of document.querySelectorAll('#send input, #send textarea, #send select, #send .segmented button, #attachments button, #collect-button, #outbox input, #outbox .remove'))
+	for (const e of document.querySelectorAll('#send input, #send textarea, #send select, #send .segmented button, #attachments button, #collect-button, #draft-button, #drafts button, #outbox input, #outbox .remove'))
 		e.disabled = on;
 }
 
@@ -2492,6 +2495,119 @@ $('outbox-send').onclick = async () => {
 		outboxEstimate();
 	}
 };
+
+// ---------------------------------------------------------------- drafts
+
+// Topics and Replies kept as the form had them, unfinished ones too, to
+// go on with later: one line each below the Compose form, tapping one
+// fills the form with it, and it stays listed until removed. Kept in
+// data/drafts.json as { drafts: [{ kind, signer, include: { call, name,
+// avatar }, toKind, toValue, subject, text, parent, files, saved }] },
+// parent in hex, each file as { bytes, type, name, budget, original }
+// with the bytes in base64 and original, the picture before it was made
+// smaller, only when it was.
+const drafts = async () => (await store.getData('drafts'))?.drafts ?? [];
+const setDrafts = (list) => store.putData('drafts', { drafts: list });
+
+// the form as a draft, without when it was saved
+function formDraft() {
+	const file = (a) => ({ bytes: toBase64(a.bytes), type: a.type, name: a.name, budget: a.budget,
+		original: a.budget ? { bytes: toBase64(a.original.bytes), type: a.original.type, name: a.original.name } : null });
+	return {
+		kind, signer: $('signer').value,
+		include: { call: $('include-call').checked, name: $('include-name').checked, avatar: $('include-avatar').checked },
+		toKind: $('to-kind').value, toValue: $('to-value').value,
+		subject: $('subject').value, text: $('text').value,
+		parent: replyTo && view.hex(replyTo), files: attachments.map(file),
+	};
+}
+
+const blank = (f) => !f.subject.trim() && !f.text.trim() && !f.files.length && !f.parent;
+// what the form held when a draft filled it, so the same isn't kept twice
+let fromDraft = null;
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+$('draft-button').onclick = async () => {
+	const f = formDraft();
+	if (blank(f)) {
+		$('send-status').textContent = 'Nothing to keep as a draft yet.';
+		return;
+	}
+	$('draft-button').disabled = true;
+	try {
+		if (!same(f, fromDraft))
+			await setDrafts([...await drafts(), { ...f, saved: Date.now() }]);
+		fromDraft = null;
+		clearForm();
+		$('send-status').textContent = 'Kept as a draft, below.';
+	} catch (err) {
+		$('send-status').textContent = `Can't keep the draft: ${err.message}`;
+	} finally {
+		$('draft-button').disabled = stepping;
+	}
+	showDrafts();
+};
+
+// The form filled with a draft. What the form held goes to the drafts
+// first, unless it is empty or a draft as it was, so nothing is lost.
+async function openDraft(d) {
+	const f = formDraft();
+	if (!blank(f) && !same(f, fromDraft))
+		await setDrafts([...await drafts(), { ...f, saved: Date.now() }]);
+	const file = (x) => {
+		const now = { bytes: fromBase64(x.bytes), type: x.type, name: x.name };
+		const original = x.original ? { bytes: fromBase64(x.original.bytes), type: x.original.type, name: x.original.name } : now;
+		return { ...now, original, budget: x.budget };
+	};
+	clearForm();
+	if ([...$('signer').options].some((o) => o.value === d.signer))
+		$('signer').value = d.signer;
+	$('include-call').checked = d.include.call;
+	$('include-name').checked = d.include.name;
+	$('include-avatar').checked = d.include.avatar;
+	$('to-kind').value = d.toKind;
+	setTo();
+	$('to-value').value = d.toValue;
+	$('subject').value = d.subject;
+	$('text').value = d.text;
+	attachments = d.files.map(file);
+	showAttachments();
+	replyTo = d.parent && fromHex(d.parent);
+	setKind(d.kind);
+	fromDraft = formDraft();
+	$('send-status').textContent = `The draft from ${view.when(d.saved)} is in the form; it stays below until removed.`;
+	showDrafts();
+	$('send').scrollIntoView({ block: 'start' });
+}
+
+// one line per draft: what it is, its text's start and when it was kept
+const shortWhen = (ms) => new Date(ms).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+let showingDrafts = 0;
+async function showDrafts() {
+	if (!store)
+		return;
+	const mine = ++showingDrafts;
+	const list = await drafts();
+	if (mine !== showingDrafts)
+		return;
+	$('drafts-head').hidden = !list.length;
+	$('drafts').replaceChildren(...list.map((d) => {
+		const what = d.kind === 'topic' ? (d.subject.trim() || 'Topic without a subject') : 'Reply';
+		const start = d.text.trim().replace(/\s+/g, ' ');
+		const files = d.files.length ? `${d.files.length === 1 ? 'one file' : `${d.files.length} files`} · ` : '';
+		const open = view.el('button.draft-line', typedText('strong', what), start ? typedText('span', start) : '', view.el('span.dim', `${files}${shortWhen(d.saved)}`));
+		open.onclick = () => openDraft(d);
+		const remove = view.el('button.small.remove', 'Remove');
+		remove.onclick = async () => {
+			await setDrafts((await drafts()).filter((x) => x.saved !== d.saved));
+			showDrafts();
+		};
+		for (const b of [open, remove])
+			b.disabled = stepping;
+		return view.el('div.draft', open, remove);
+	}));
+}
+showDrafts();
 
 // which version runs, from its files, once the app has settled: they come
 // through the service worker, the network's when online, so mostly small
