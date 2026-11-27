@@ -2160,21 +2160,23 @@ function signedOfPost(id) {
 
 // A post that came in one frame, anyone's, sent again as relays do: its
 // Signed record as it is, so signature and post ID stay, in one frame,
-// made longer when the seconds per frame don't hold it. Other records of
-// its frame stay behind.
+// made longer when the seconds per frame don't hold it, or collected in
+// the Outbox to go out with the rest. Other records of its frame stay
+// behind.
 async function sendPostAgain(id) {
 	const at = signedOfPost(id);
 	const info = view.el('p.dim');
 	const status = view.el('p.dim');
 	const send = view.el('button.primary', 'Send');
+	const collectIt = view.el('button', 'Collect');
 	const stop = view.el('button', 'Stop');
 	const close = view.el('button', 'Close');
 	stop.hidden = true;
 	const dialog = view.el('dialog.trust-dialog',
 		view.el('h3', 'Send again'),
-		view.el('p', 'This post as it came, signature and post ID unchanged, in one frame of its own.'),
+		view.el('p', 'This post as it came, signature and post ID unchanged: in one frame of its own, or collected to go out with the Outbox.'),
 		info,
-		view.el('div.row', send, stop, close),
+		view.el('div.row', send, collectIt, stop, close),
 		status);
 	const say = (t) => {
 		status.textContent = t;
@@ -2191,8 +2193,25 @@ async function sendPostAgain(id) {
 		info.textContent = `${view.bytes(record.length)} in one frame of ${p.airtime.toFixed(1)} s.`;
 	} catch (err) {
 		info.textContent = `Can't send it again: ${err.message}`;
-		send.disabled = true;
+		send.disabled = collectIt.disabled = true;
 	}
+	collectIt.onclick = async () => {
+		collectIt.disabled = true;
+		try {
+			const posts = await collected();
+			if (posts.some((p) => p.again && p.id === id)) {
+				say('It already waits in the Outbox.');
+				return;
+			}
+			await setCollected([...posts, { again: toBase64(record), id, collected: Date.now() }]);
+			say(waiting(posts.length + 1));
+			showOutbox();
+		} catch (err) {
+			say(`Can't collect: ${err.message}`);
+		} finally {
+			collectIt.disabled = false;
+		}
+	};
 	send.onclick = async () => {
 		const ctx = audioOut();
 		send.disabled = true;
@@ -2334,7 +2353,10 @@ function clearForm(keepTo = false) {
 // and avatar once in front of them (sender.js, bundled()). Kept in
 // data/outbox.json as { posts: [{ key, kind, subject, text, parts, parent,
 // to, timestamp, collected }] }, parent and a To fingerprint in hex, the
-// attached files as their records in base64.
+// attached files as their records in base64. A post sent again, anyone's,
+// waits there too as { again, id, collected }: its Signed record as it
+// came, in base64, and its post ID in hex; it goes out as it is, beside
+// the bundles of the station's own keys.
 const collected = async () => (await store.getData('outbox'))?.posts ?? [];
 // attached files as the records they become, in base64
 const toBase64 = (b) => {
@@ -2432,7 +2454,9 @@ async function showOutbox() {
 		return;
 	const byKey = new Map();
 	for (const p of posts)
-		byKey.set(p.key, [...byKey.get(p.key) ?? [], p]);
+		if (!p.again)
+			byKey.set(p.key, [...byKey.get(p.key) ?? [], p]);
+	const again = posts.filter((p) => p.again);
 	$('outbox-empty').hidden = posts.length > 0;
 	$('outbox-groups').replaceChildren(...[...byKey].map(([key, mine]) => {
 		const k = list.find((x) => x.key === key);
@@ -2485,8 +2509,34 @@ async function showOutbox() {
 				view.el('div.row', remove)));
 		}
 		return view.el('div.key-card', ...out);
-	}));
+	}), ...again.length ? [againCard(again)] : []);
 	return outboxEstimate();
+}
+
+// the posts sent again, as they came: what each is, whose and when
+// collected, each with a Remove button
+function againCard(again) {
+	const out = [view.el('div.key-card-head', view.el('strong', 'Sent again, as they came'))];
+	for (const p of again) {
+		const a = station.analyze(fromBase64(p.again));
+		let post = null, key = null;
+		for (const [n, path] of a.nodes ? walk(a.nodes) : [])
+			if (!post && (n.type === T.TOPIC || n.type === T.REPLY)) {
+				post = n;
+				key = path.find((x) => x.type === T.SIGNED)?.key;
+			}
+		const remove = view.el('button.small.remove', 'Remove');
+		remove.disabled = stepping;
+		remove.onclick = async () => {
+			await setCollected((await collected()).filter((x) => !(x.again && x.collected === p.collected)));
+			showOutbox();
+		};
+		out.push(view.el('div.outbox-post',
+			post?.type === T.TOPIC ? view.el('strong', view.textOf(post.subject, 'subject')) : view.el('strong', 'Reply'),
+			view.el('span.dim', ...key ? ['by ', view.el('span.key', view.hex(key).slice(0, 8)), ' · '] : [], `${view.bytes(fromBase64(p.again).length)} · collected ${view.when(p.collected)}`),
+			view.el('div.row', remove)));
+	}
+	return view.el('div.key-card', ...out);
 }
 
 // all collected posts in one payload, a Signed record per key, or { why };
@@ -2497,11 +2547,12 @@ async function outboxDraft(dry = false) {
 	// the empty outbox says so itself
 	if (!posts.length)
 		return { why: '' };
-	if (!keys)
+	const ownPosts = posts.filter((p) => !p.again);
+	if (ownPosts.length && !keys)
 		return { why: 'CRYPTO failed to load, so nothing can be signed.' };
-	const list = await keys.list();
+	const list = ownPosts.length ? await keys.list() : [];
 	const byKey = new Map();
-	for (const p of posts)
+	for (const p of ownPosts)
 		byKey.set(p.key, [...byKey.get(p.key) ?? [], p]);
 	const records = [];
 	for (const [key, mine] of byKey) {
@@ -2523,6 +2574,10 @@ async function outboxDraft(dry = false) {
 			sign: dry ? unsigned : await keys.signer(key),
 		}));
 	}
+	// posts sent again go as they came, after the station's own
+	for (const p of posts)
+		if (p.again)
+			records.push(fromBase64(p.again));
 	return { payload: framePayload(records), o, posts };
 }
 
